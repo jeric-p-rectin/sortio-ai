@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import '../backend/controller.dart';
 import '../backend/design_tokens.dart';
 import '../backend/routes.dart';
-import 'chat_screen.dart';
+import 'home_shell.dart';
 
 class SortioApp extends StatelessWidget {
   const SortioApp({super.key});
@@ -34,9 +34,9 @@ class SortioApp extends StatelessWidget {
           bodyMedium: TextStyle(color: SortioColors.textBody, height: 1.45),
         ),
       ),
-      initialRoute: SortioRoutes.chat,
+      initialRoute: SortioRoutes.home,
       onGenerateRoute: (settings) => SortioRoutes.onGenerateRoute(settings, screens: {
-        SortioRoutes.chat: (context) => ChatScreen(
+        SortioRoutes.home: (context) => HomeShell(
               initialPanel: settings.arguments is StartPanel
                   ? settings.arguments! as StartPanel
                   : StartPanel.none,

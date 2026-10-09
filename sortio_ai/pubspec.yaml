@@ -34,10 +34,17 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  sqlite3: ^3.7.0
+  sqlite3: 3.5.2
+  # Bundles the native SQLite library on Android/iOS — without it
+  # package:sqlite3 cannot open a database on the device.
+  sqlite3_flutter_libs: ^0.5.32
   path: ^1.9.1
   path_provider: ^2.1.6
-  permission_handler: ^13.0.2
+  # 13.x requires permission_handler_android 14.1.0, whose Gradle script
+  # needs AGP 9 (this project uses the Flutter-3.38 default AGP 8.11).
+  # 12.0.3 is the newest release compatible with AGP 8.
+  permission_handler: 12.0.3
+  # On-device AI: llama.cpp runtime, OCR, PDF page rendering.
   llamadart: ^0.11.1
   google_mlkit_text_recognition: ^0.17.1
   pdfx: ^2.11.0

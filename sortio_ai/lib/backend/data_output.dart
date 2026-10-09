@@ -78,6 +78,135 @@ abstract final class SortioData {
 
   static const SavingsSummary savings = SavingsSummary(files: 45, mbFreed: 200, minutesSaved: 15);
 
+  /// The on-device action log shown in the History screen (newest first).
+  static List<HistoryEntry> history() => const [
+        HistoryEntry(
+          id: 'h1',
+          title: 'Renamed & moved a PDF',
+          detail: 'IMG_2043.pdf → Documents/Invoices/2026-03_Meralco_Invoice.pdf',
+          when: 'Today · 10:24',
+          tone: SuggestionTone.cyan,
+          chip: 'Rename',
+        ),
+        HistoryEntry(
+          id: 'h2',
+          title: 'Quarantined an installer',
+          detail: 'setup_v2.exe → Quarantine/holding_bin/',
+          when: 'Today · 10:24',
+          tone: SuggestionTone.amber,
+          chip: 'Quarantine',
+        ),
+        HistoryEntry(
+          id: 'h3',
+          title: 'Organized 45 files',
+          detail: 'Downloads tidy-up · 200 MB freed · 15 min saved',
+          when: 'Yesterday',
+          tone: SuggestionTone.cyan,
+          chip: 'Cleanup',
+        ),
+        HistoryEntry(
+          id: 'h4',
+          title: 'Found "invoice from March"',
+          detail: 'Plain-language search · 3 results in 0.4s, on-device',
+          when: 'Yesterday',
+          tone: SuggestionTone.cyan,
+          chip: 'Search',
+        ),
+        HistoryEntry(
+          id: 'h5',
+          title: 'ID scan filed with extra confirmation',
+          detail: 'PhilID_2026.jpg → Documents/IDs/',
+          when: 'Mar 2',
+          tone: SuggestionTone.amber,
+          chip: 'Sensitive',
+        ),
+        HistoryEntry(
+          id: 'h6',
+          title: 'Wiped AI memory & logs',
+          detail: 'Learned patterns, chat history and action logs cleared',
+          when: 'Feb 24',
+          tone: SuggestionTone.amber,
+          chip: 'Danger Zone',
+        ),
+      ];
+
+  /// Files shown in the File Manager screen, grouped by folder key.
+  static List<FileItem> files() => const [
+        FileItem(
+          folderKey: 'downloads',
+          name: 'IMG_2043.pdf',
+          size: '1.2 MB',
+          modified: 'Mar 3',
+          kind: FileKind.pdf,
+          suggested: true,
+        ),
+        FileItem(
+          folderKey: 'downloads',
+          name: 'setup_v2.exe',
+          size: '84 MB',
+          modified: 'Mar 3',
+          kind: FileKind.exe,
+          suggested: true,
+        ),
+        FileItem(
+          folderKey: 'downloads',
+          name: 'march_receipt.jpg',
+          size: '340 KB',
+          modified: 'Mar 2',
+          kind: FileKind.image,
+        ),
+        FileItem(
+          folderKey: 'downloads',
+          name: 'meeting_notes.docx',
+          size: '56 KB',
+          modified: 'Mar 1',
+          kind: FileKind.doc,
+        ),
+        FileItem(
+          folderKey: 'documents',
+          name: '2026-03_Meralco_Invoice.pdf',
+          size: '1.2 MB',
+          modified: 'Mar 3',
+          kind: FileKind.pdf,
+        ),
+        FileItem(
+          folderKey: 'documents',
+          name: 'PhilID_2026.jpg',
+          size: '2.1 MB',
+          modified: 'Feb 28',
+          kind: FileKind.image,
+          sensitive: true,
+        ),
+        FileItem(
+          folderKey: 'screenshots',
+          name: 'Screenshot_2026-03-01.png',
+          size: '280 KB',
+          modified: 'Mar 1',
+          kind: FileKind.image,
+        ),
+        FileItem(
+          folderKey: 'screenshots',
+          name: 'Screenshot_2026-02-27.png',
+          size: '310 KB',
+          modified: 'Feb 27',
+          kind: FileKind.image,
+        ),
+        FileItem(
+          folderKey: 'quarantine',
+          name: 'setup_v2.exe',
+          size: '84 MB',
+          modified: 'Mar 3',
+          kind: FileKind.exe,
+        ),
+        FileItem(
+          folderKey: 'quarantine',
+          name: 'unknown_installer.apk',
+          size: '12 MB',
+          modified: 'Feb 25',
+          kind: FileKind.exe,
+        ),
+      ];
+
   /// "Downloads, Screenshots and Documents" — the join used in agent replies.
   static String joinNames(List<String> list) {
     if (list.length < 2) return list.join('');

@@ -28,21 +28,17 @@ import 'platform/model_store.dart';
 import 'platform/ocr_service.dart';
 import 'sortio_core.dart' as core;
 
-/// Which overlay is open when the app starts (mirrors the prototype's
-/// `startPanel` prop: none | drawer | settings).
-enum StartPanel { none, drawer, settings }
+/// Which location the app starts on (mirrors the prototype's `startPanel`
+/// prop: none | settings).
+enum StartPanel { none, settings }
 
 class SortioController extends ChangeNotifier {
-  SortioController({StartPanel initialPanel = StartPanel.none})
-      : drawerOpen = initialPanel == StartPanel.drawer,
-        sheetOpen = initialPanel == StartPanel.settings {
+  SortioController() {
     unawaited(_init());
   }
 
   // --- Core state -----------------------------------------------------------
   bool offline = false;
-  bool drawerOpen;
-  bool sheetOpen;
 
   String toastText = '';
   bool toastOn = false;
@@ -60,7 +56,6 @@ class SortioController extends ChangeNotifier {
   double strictness = 20;
   String rules = '';
   bool armed = false;
-  String activeSession = 'now';
 
   final List<ChatMessage> extraMessages = <ChatMessage>[];
   bool typing = false;
@@ -315,36 +310,7 @@ class SortioController extends ChangeNotifier {
   ({String label, String hint, String mode, int threshold}) get strictOutput =>
       SortioData.strictness(strictness);
 
-  List<SessionEntry> get sessions => SortioData.sessions();
   SavingsSummary get savings => _savings;
-
-  // --- Actions --------------------------------------------------------------
-  void toggleNetwork() {
-    offline = !offline;
-    _toast(offline
-        ? 'Network disconnected. AI is 100% operational locally.'
-        : 'Network back on. Sortio still never uploads your files.');
-  }
-
-  void openDrawer() {
-    drawerOpen = true;
-    sheetOpen = false;
-    _notify();
-  }
-
-  void openSheet() {
-    sheetOpen = true;
-    drawerOpen = false;
-    _notify();
-  }
-
-  void closePanels() {
-    drawerOpen = false;
-    sheetOpen = false;
-    armed = false;
-    _armTimer?.cancel();
-    _notify();
-  }
 
   /// Approve or ignore a suggestion: collapse the card first (380 ms), then
   /// swap in the applied/ignored row — same sequencing as the prototype.
@@ -507,12 +473,6 @@ class SortioController extends ChangeNotifier {
 
   void setRules(String value) {
     rules = value;
-    _notify();
-  }
-
-  void pickSession(String id) {
-    activeSession = id;
-    if (id == 'now') drawerOpen = false;
     _notify();
   }
 

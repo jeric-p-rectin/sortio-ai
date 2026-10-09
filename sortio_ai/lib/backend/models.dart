@@ -108,3 +108,44 @@ class SavingsSummary {
   final int mbFreed;
   final int minutesSaved;
 }
+
+/// One logged action in the History screen.
+class HistoryEntry {
+  const HistoryEntry({
+    required this.id,
+    required this.title,
+    required this.detail,
+    required this.when,
+    required this.tone,
+    required this.chip,
+  });
+  final String id;
+  final String title;
+  final String detail;
+  final String when; // "Today · 10:24" | "Yesterday" | "Mar 2"
+  final SuggestionTone tone;
+  final String chip; // Rename | Quarantine | Cleanup | Search | Sensitive
+}
+
+/// What kind of file a row represents (drives the icon + color).
+enum FileKind { pdf, exe, image, doc }
+
+/// One file shown in the File Manager screen.
+class FileItem {
+  const FileItem({
+    required this.folderKey,
+    required this.name,
+    required this.size,
+    required this.modified,
+    required this.kind,
+    this.sensitive = false,
+    this.suggested = false,
+  });
+  final String folderKey; // 'downloads' | 'documents' | 'screenshots' | 'quarantine'
+  final String name;
+  final String size;
+  final String modified;
+  final FileKind kind;
+  final bool sensitive; // warning badge (IDs, payslips)
+  final bool suggested; // Sortio has a pending suggestion for it
+}

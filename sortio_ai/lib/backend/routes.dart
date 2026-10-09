@@ -10,7 +10,8 @@ import 'package:flutter/material.dart';
 import 'animations.dart';
 
 abstract final class SortioRoutes {
-  static const String chat = '/';
+  /// The app entry: the navigation shell (bottom bar + tab screens).
+  static const String home = '/';
 
   /// Called by MaterialApp's `onGenerateRoute`. The screen map is supplied by
   /// the frontend so backend stays free of widget-screen imports.
@@ -18,7 +19,7 @@ abstract final class SortioRoutes {
     RouteSettings settings, {
     required Map<String, WidgetBuilder> screens,
   }) {
-    final builder = screens[settings.name] ?? screens[SortioRoutes.chat]!;
+    final builder = screens[settings.name] ?? screens[SortioRoutes.home]!;
     return FadeThroughRoute<void>(settings: settings, builder: builder);
   }
 }
