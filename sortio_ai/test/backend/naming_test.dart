@@ -103,6 +103,13 @@ void main() {
       expect(llm.lastUser, isNotNull);
     });
 
+    test('prefers the brand printed in parentheses after the legal name', () async {
+      final llm = FakeLlm({'issuer': 'MANILA ELECTRIC COMPANY', 'doc_type': 'Statement'});
+      final r = (await RenameService(llm)
+          .propose(fileName: 'IMG_2043.pdf', ocrText: meralco))!;
+      expect(r.newName, '2026-03_Meralco_Statement.pdf');
+    });
+
     test('falls back to the file date and to "Document"', () async {
       final llm = FakeLlm({'issuer': 'BDO', 'doc_type': 'something weird'});
       final r = (await RenameService(llm).propose(
@@ -129,6 +136,39 @@ void main() {
       await RenameService(llm, maxChars: 100)
           .propose(fileName: 'a.pdf', ocrText: meralco * 20);
       expect(llm.lastUser!.length, 100);
+    });
+  });
+
+  group('ContentInsights', () {
+    test('extracts the amount to pay and flags sensitive data', () {
+      final bill = ContentInsights.fromText(meralco);
+      expect(bill.amountLabel, 'Amount due:');
+      expect(bill.amountValue, '₱3,482.15');
+      expect(bill.sensitiveBadge, 'Contains Account Number');
+
+      final receipt = ContentInsights.fromText(sevenEleven);
+      expect(receipt.amountValue, '₱58.00');
+      expect(receipt.isSensitive, isFalse);
+
+      final pay = ContentInsights.fromText(payslip);
+      expect(pay.amountLabel, 'Net pay:');
+      expect(pay.amountValue, '₱13,543.70');
+      expect(pay.sensitiveBadge, 'Contains ID Number'); // SSS
+    });
+
+    test('nothing found', () {
+      final none = ContentInsights.fromText('Meeting notes for Monday');
+      expect(none.amountValue, isNull);
+      expect(none.sensitiveBadge, isNull);
+    });
+  });
+
+  group('jsonSchemaToGbnf', () {
+    test('builds a grammar with keys in order and enum alternatives', () {
+      final g = jsonSchemaToGbnf(classifySchema);
+      expect(g, contains(r'root ::= "{" ws "\"issuer\"" ws ":" ws v0 ws "," ws "\"doc_type\"" ws ":" ws v1 ws "}"'));
+      expect(g, contains('v0 ::= string'));
+      expect(g, contains(r'"\"Invoice\"" | "\"Bill\""'));
     });
   });
 

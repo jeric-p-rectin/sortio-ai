@@ -21,8 +21,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'data_output.dart';
+import 'llm/llamadart_client.dart';
 import 'models.dart';
 import 'motion.dart';
+import 'platform/model_store.dart';
+import 'platform/ocr_service.dart';
 import 'sortio_core.dart' as core;
 
 /// Which overlay is open when the app starts (mirrors the prototype's
@@ -74,6 +77,13 @@ class SortioController extends ChangeNotifier {
 
   // --- Engine ---------------------------------------------------------------
   core.LocalSortioCore? _engine;
+  OcrService? _ocr;
+  LlamaDartClient? _llm;
+  Future<void>? _modelReady;
+  bool settingUpModel = false;
+  final Map<String, core.ContentInsights> _insightsById = {};
+  int _scanGeneration = 0;
+  bool aiBusy = false;
   StreamSubscription<bool>? _offlineSub;
   bool? _lastRealOffline;
   bool _disposed = false;
@@ -98,12 +108,32 @@ class SortioController extends ChangeNotifier {
       }
       if (_disposed) return;
       _engine = core.LocalSortioCore(dataDir: dataDir);
+      _ocr = OcrService(tempDir: (await getTemporaryDirectory()).path);
+      _modelReady = _prepareModel(dataDir);
       _offlineSub = _engine!.isOffline.listen(_onRealOffline);
       await _rescan();
       await _refreshSavings();
     } on Object catch (e) {
       debugPrint('Sortio engine unavailable, using demo data: $e');
       _loadDemo();
+    }
+  }
+
+  /// First launch copies the model out of the APK (~15 s); scanning and OCR
+  /// run meanwhile, and the AI rename step waits for this.
+  Future<void> _prepareModel(String dataDir) async {
+    final store = ModelStore(dataDir);
+    if (store.find() == null) {
+      settingUpModel = true;
+      _notify();
+    }
+    try {
+      final modelPath = await store.ensureInstalled();
+      if (modelPath != null && !_disposed) _llm = LlamaDartClient(modelPath);
+      debugPrint('Sortio on-device model: ${modelPath ?? 'not installed'}');
+    } finally {
+      settingUpModel = false;
+      _notify();
     }
   }
 
@@ -142,36 +172,100 @@ class SortioController extends ChangeNotifier {
   Suggestion _toCard(core.Suggestion s) {
     final quarantine = s.category == core.LocalSortioCore.quarantineFolderName;
     final renamed = s.fileName != s.targetName;
+    final insights = _insightsById[s.id];
+    final hasExtract = insights?.amountValue != null;
     return Suggestion(
       id: s.id,
       kind: quarantine
           ? 'Quarantine'
-          : renamed
-              ? 'Rename · Move'
-              : 'Move',
+          : [if (renamed) 'Rename', 'Move', if (hasExtract) 'Extract'].join(' · '),
       fromPath: _display(s.sourcePath),
       toPath: _display(s.targetPath),
       tone: quarantine ? SuggestionTone.amber : SuggestionTone.cyan,
+      badge: insights?.sensitiveBadge,
+      extractLabel: hasExtract ? insights!.amountLabel : null,
+      extractValue: hasExtract ? insights!.amountValue : null,
       reason: quarantine ? s.reason : null,
     );
+  }
+
+  /// Swap a pending card for an updated one, keeping its place in the feed.
+  void _replaceCard(core.Suggestion s) {
+    final card = suggestions[s.id];
+    if (card == null || !card.isPending || card.closing || editingId == s.id) return;
+    _engineById[s.id] = s;
+    suggestions[s.id] = _toCard(s);
+    _notify();
+  }
+
+  /// After a scan: OCR every scan (amount + sensitive badge, searchable
+  /// text), then let the on-device model name them. Cards update one by one.
+  Future<void> _runAi() async {
+    final engine = _engine;
+    final ocr = _ocr;
+    if (engine == null || ocr == null) return;
+    final generation = _scanGeneration;
+    bool stale() => _disposed || generation != _scanGeneration;
+
+    final scans = [for (final s in _engineById.values) if (s.needsRename) s];
+    if (scans.isEmpty) return;
+    aiBusy = true;
+    _notify();
+    try {
+      for (final s in scans) {
+        if (stale()) return;
+        var text = engine.ocrTextFor(s.sourcePath);
+        if (text == null) {
+          try {
+            text = await ocr.read(s.sourcePath);
+          } on Object catch (e) {
+            debugPrint('OCR failed for ${s.sourcePath}: $e');
+            text = '';
+          }
+          engine.saveOcrText(s.sourcePath, text);
+        }
+        if (stale()) return;
+        _insightsById[s.id] = core.ContentInsights.fromText(text);
+        _replaceCard(_engineById[s.id] ?? s);
+      }
+
+      await _modelReady;
+      if (stale()) return;
+      final llm = _llm;
+      if (llm == null) return;
+      await for (final named in engine.aiRename(scans, core.RenameService(llm))) {
+        if (stale()) return;
+        _replaceCard(named);
+      }
+    } on Object catch (e) {
+      debugPrint('Sortio AI step failed: $e');
+    } finally {
+      if (generation == _scanGeneration) {
+        aiBusy = false;
+        _notify();
+      }
+    }
   }
 
   Future<void> _rescan() async {
     final engine = _engine;
     if (engine == null) return;
     scanning = true;
+    final generation = ++_scanGeneration;
     _notify();
     final found = await engine.scan(_allowedRoots);
-    if (_disposed) return;
+    if (_disposed || generation != _scanGeneration) return;
     suggestions.clear();
     _engineById.clear();
     _batchById.clear();
+    _insightsById.clear();
     for (final s in found.take(25)) {
       _engineById[s.id] = s;
       suggestions[s.id] = _toCard(s);
     }
     scanning = false;
     _notify();
+    unawaited(_runAi());
   }
 
   Future<void> _refreshSavings() async {
@@ -209,7 +303,13 @@ class SortioController extends ChangeNotifier {
   int get appliedCount => suggestions.values.where((s) => s.state == SuggestionState.applied).length;
   String get doneLine => SortioData.doneLine(appliedCount, suggestions.length);
 
-  String get modelLine => offline ? SortioData.offlineModelLine : SortioData.onlineModelLine;
+  String get modelLine => settingUpModel
+      ? SortioData.setupModelLine
+      : aiBusy
+      ? SortioData.workingModelLine
+      : offline
+          ? SortioData.offlineModelLine
+          : SortioData.onlineModelLine;
   String get footLine => offline ? SortioData.offlineFootLine : SortioData.onlineFootLine;
 
   ({String label, String hint, String mode, int threshold}) get strictOutput =>
@@ -495,6 +595,8 @@ class SortioController extends ChangeNotifier {
     }
     _offlineSub?.cancel();
     _engine?.close();
+    _ocr?.close();
+    _llm?.dispose();
     super.dispose();
   }
 }

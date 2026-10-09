@@ -12,6 +12,8 @@ abstract final class SortioData {
   static const String appName = 'Sortio AI';
   static const String onlineModelLine = 'On-device model ready';
   static const String offlineModelLine = 'Offline · on-device model active';
+  static const String workingModelLine = 'Reading your scans on-device…';
+  static const String setupModelLine = 'Setting up the on-device AI…';
   static const String onlineFootLine = 'Private by design · files never leave this phone';
   static const String offlineFootLine = 'Offline · running 100% on this phone';
 
