@@ -16,16 +16,35 @@ void main() {
     );
   });
 
-  testWidgets('settings tab opens the Privacy Command Center', (tester) async {
+  testWidgets('settings tab opens Settings and the dark mode toggle switches palettes', (tester) async {
     await tester.pumpWidget(const SortioApp());
     await tester.pump(const Duration(milliseconds: 600));
 
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle(const Duration(milliseconds: 600));
 
-    expect(find.text('Privacy Command Center'), findsOneWidget);
+    // The screen title plus the active tab's label in the nav bar.
+    expect(find.text('Settings'), findsNWidgets(2));
     expect(find.text('FOLDER SANDBOX'), findsOneWidget);
+    expect(find.text('APPEARANCE'), findsOneWidget);
     expect(find.text('DANGER ZONE'), findsOneWidget);
+    expect(find.text('Dark mode'), findsOneWidget);
+
+    // Dark mode off -> the light palette repaints the app.
+    await tester.tap(find.byKey(const ValueKey('dark-mode-switch')));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      const Color(0xFFF4F6FB),
+    );
+
+    // Back on -> the original dark palette.
+    await tester.tap(find.byKey(const ValueKey('dark-mode-switch')));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      const Color(0xFF0B0F19),
+    );
   });
 
   testWidgets('navigation bar switches between tabs and the + opens chat', (tester) async {

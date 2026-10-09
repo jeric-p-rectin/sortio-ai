@@ -39,7 +39,7 @@ class FileManagerScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Files',
                       style: TextStyle(
                         fontSize: 22,
@@ -50,8 +50,8 @@ class FileManagerScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${controller.folderCount} · Sortio only suggests, never deletes.',
-                      style: const TextStyle(fontSize: 12, color: SortioColors.textMuted),
+                      controller.folderCount,
+                      style: TextStyle(fontSize: 12, color: SortioColors.textMuted),
                     ),
                   ],
                 ),
@@ -149,16 +149,16 @@ class _FolderSection extends StatelessWidget {
                     children: [
                       Text(
                         label,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFFF1F5F9),
+                          color: SortioColors.textBright,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         path,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           color: SortioColors.textMuted,
                           fontFamily: SortioFonts.mono,
@@ -192,7 +192,7 @@ class _FolderSection extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: SortioColors.border),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
                       Icon(Icons.visibility_outlined, size: 15, color: SortioColors.accentSoft),
                       SizedBox(width: 8),
@@ -212,7 +212,7 @@ class _FolderSection extends StatelessWidget {
             Column(
               children: [
                 for (var i = 0; i < files.length; i++) ...[
-                  if (i > 0) const Divider(height: 1, thickness: 1, color: SortioColors.borderCard),
+                  if (i > 0) Divider(height: 1, thickness: 1, color: SortioColors.borderCard),
                   _FileRow(item: files[i]),
                 ],
               ],
@@ -231,7 +231,7 @@ class _FileRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, tint) = switch (item.kind) {
-      FileKind.pdf => (Icons.picture_as_pdf_outlined, const Color(0xFFF87171)),
+      FileKind.pdf => (Icons.picture_as_pdf_outlined, SortioColors.redSoft),
       FileKind.exe => (Icons.warning_amber_rounded, SortioColors.amber),
       FileKind.image => (Icons.image_outlined, SortioColors.accentBright),
       FileKind.doc => (Icons.article_outlined, SortioColors.textSoft),
@@ -264,10 +264,10 @@ class _FileRow extends StatelessWidget {
                         item.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFFF1F5F9),
+                          color: SortioColors.textBright,
                           fontFamily: SortioFonts.mono,
                         ),
                       ),
@@ -281,7 +281,7 @@ class _FileRow extends StatelessWidget {
                           color: SortioColors.accent.withValues(alpha: 0.14),
                           border: Border.all(color: SortioColors.accent.withValues(alpha: 0.4)),
                         ),
-                        child: const Text(
+                        child: Text(
                           'Suggested',
                           style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: SortioColors.accentSoft),
                         ),
@@ -296,12 +296,12 @@ class _FileRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   '${item.size} · ${item.modified}',
-                  style: const TextStyle(fontSize: 11, color: SortioColors.textMuted),
+                  style: TextStyle(fontSize: 11, color: SortioColors.textMuted),
                 ),
               ],
             ),
           ),
-          const Icon(Icons.more_vert, size: 18, color: SortioColors.textMuted),
+          Icon(Icons.more_vert, size: 18, color: SortioColors.textMuted),
         ],
       ),
     );

@@ -251,17 +251,4 @@ abstract final class SortioData {
     final more = hits.length > 5 ? '\n…and ${hits.length - 5} more.' : '';
     return 'Found ${hits.length} file${hits.length == 1 ? '' : 's'}:\n$lines$more';
   }
-
-  /// Strictness slider output: threshold % + mode label + explainer.
-  static ({String label, String hint, String mode, int threshold}) strictness(double value) {
-    final v = value.clamp(0, 100);
-    final thr = (95 - v * 0.35).round();
-    final mode = v < 34 ? 'Strict' : v < 67 ? 'Balanced' : 'Creative';
-    final hint = v < 34
-        ? 'Acts only when it is at least $thr% sure. Anything less becomes a question for you.'
-        : v < 67
-            ? 'Suggests moves at $thr%+ confidence and flags anything it is unsure about.'
-            : 'Guesses from context (down to $thr% confidence), but every guess still waits for your approval.';
-    return (label: '$mode · $thr% match', hint: hint, mode: mode, threshold: thr);
-  }
 }

@@ -141,6 +141,7 @@ class _NewChatHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    context.watchSortioTheme();
     return Padding(
       padding: EdgeInsets.only(top: MediaQuery.heightOf(context) * 0.16),
       child: Column(
@@ -155,7 +156,7 @@ class _NewChatHero extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          const Text(
+          Text(
             'How can I help you sort your files?',
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -184,7 +185,7 @@ class _UserBubble extends StatelessWidget {
           constraints: BoxConstraints(maxWidth: MediaQuery.widthOf(context) * 0.82),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: SortioColors.green,
               borderRadius: BorderRadius.only(
                 topLeft: Radius.circular(20),
@@ -222,7 +223,7 @@ class _AgentBubble extends StatelessWidget {
           constraints: BoxConstraints(maxWidth: MediaQuery.widthOf(context) * 0.82),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: SortioColors.card,
               borderRadius: BorderRadius.only(
                 topLeft: Radius.circular(20),
@@ -233,7 +234,7 @@ class _AgentBubble extends StatelessWidget {
             ),
             child: Text(
               text,
-              style: const TextStyle(fontSize: 14.5, height: 1.45, color: SortioColors.textBody),
+              style: TextStyle(fontSize: 14.5, height: 1.45, color: SortioColors.textBody),
             ),
           ),
         ),
@@ -274,11 +275,12 @@ class _TypingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    context.watchSortioTheme();
     return PopIn(
       child: _AgentRow(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: SortioColors.card,
             borderRadius: BorderRadius.only(
               topLeft: Radius.circular(20),

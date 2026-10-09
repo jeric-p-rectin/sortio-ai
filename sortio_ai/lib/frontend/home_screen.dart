@@ -20,13 +20,6 @@ class HomeScreen extends StatelessWidget {
   final SortioController controller;
   final SortioNavigationController navigation;
 
-  String _greeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning';
-    if (hour < 18) return 'Good afternoon';
-    return 'Good evening';
-  }
-
   @override
   Widget build(BuildContext context) {
     final s = controller.savings;
@@ -56,15 +49,15 @@ class HomeScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _greeting(),
-                        style: const TextStyle(
+                        'Sortio AI',
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w700,
                           letterSpacing: -0.2,
                           color: SortioColors.textBright,
                         ),
                       ),
-                      const Text(
+                      Text(
                         'Your files, tidy — and private',
                         style: TextStyle(fontSize: 12, color: SortioColors.textMuted),
                       ),
@@ -89,17 +82,6 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: SortioStatCell(value: '${s.minutesSaved}', unit: 'min', unitColor: SortioColors.greenBright, label: 'saved'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Row(
-              children: [
-                Icon(Icons.lock_outline, size: 12, color: SortioColors.textMuted),
-                SizedBox(width: 6),
-                Text(
-                  '0 bytes uploaded · 100% on-device',
-                  style: TextStyle(fontSize: 11, color: SortioColors.textMuted),
                 ),
               ],
             ),
@@ -202,7 +184,7 @@ class _QuickAction extends StatelessWidget {
                 label,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: SortioColors.textBody),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: SortioColors.textBody),
               ),
             ),
           ],
@@ -221,7 +203,7 @@ class _SeeAllButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
@@ -260,7 +242,7 @@ class _ChatPreviewRow extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: SortioColors.borderTile),
             ),
-            child: const Icon(Icons.chat_bubble_outline, size: 17, color: SortioColors.accentBright),
+            child: Icon(Icons.chat_bubble_outline, size: 17, color: SortioColors.accentBright),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -271,12 +253,12 @@ class _ChatPreviewRow extends StatelessWidget {
                   session.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: SortioColors.textBody),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: SortioColors.textBody),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   session.when,
-                  style: const TextStyle(fontSize: 11, color: SortioColors.textMuted),
+                  style: TextStyle(fontSize: 11, color: SortioColors.textMuted),
                 ),
               ],
             ),

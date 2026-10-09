@@ -1,9 +1,9 @@
 // ============================================================================
 // Sortio AI — frontend/settings_screen.dart
 //
-// Screen: Settings — the Privacy Command Center as a full page. Folder
-// sandbox, AI strictness, house rules and the danger zone (memory wipe).
-// Shares the app-wide SortioController so these settings drive the chat.
+// Screen: Settings — folder sandbox, appearance (dark mode) and the danger
+// zone (memory wipe). Shares the app-wide SortioController so these settings
+// drive the chat.
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -14,44 +14,14 @@ import '../backend/design_tokens.dart';
 import '../backend/models.dart';
 import 'shared_widgets.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, required this.controller});
 
   final SortioController controller;
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _rulesCtrl = TextEditingController(text: widget.controller.rules);
-
-  SortioController get c => widget.controller;
-
-  @override
-  void initState() {
-    super.initState();
-    c.addListener(_syncRules);
-  }
-
-  void _syncRules() {
-    // Push externally-changed values back into the field (e.g. the memory
-    // wipe clears the rules); never fight the user's own typing.
-    if (_rulesCtrl.text != c.rules) {
-      _rulesCtrl.text = c.rules;
-    }
-  }
-
-  @override
-  void dispose() {
-    c.removeListener(_syncRules);
-    _rulesCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final strict = c.strictOutput;
+    final c = controller;
     return SafeArea(
       child: ListenableBuilder(
         listenable: c,
@@ -62,8 +32,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // -- Header -------------------------------------------------
-                const Text(
-                  'Privacy Command Center',
+                Text(
+                  'Settings',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
@@ -71,11 +41,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     color: SortioColors.textBright,
                   ),
                 ),
-                const SizedBox(height: 3),
-                const Text(
-                  'Every setting is enforced on this device.',
-                  style: TextStyle(fontSize: 12, color: SortioColors.textMuted),
-                ),
+                // Blank subtitle line keeps the original spacing rhythm.
+                const SizedBox(height: 17),
 
                 const SizedBox(height: 22),
 
@@ -88,7 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         c.folderCount,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: SortioColors.accentSoft,
@@ -107,7 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     children: [
                       for (var i = 0; i < c.folders.length; i++) ...[
-                        if (i > 0) const Divider(height: 1, thickness: 1, color: SortioColors.borderCard),
+                        if (i > 0) Divider(height: 1, thickness: 1, color: SortioColors.borderCard),
                         _FolderRow(folder: c.folders[i], controller: c),
                       ],
                     ],
@@ -116,112 +83,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 const SizedBox(height: 22),
 
-                // -- AI Strictness --------------------------------------------
-                Row(
-                  children: [
-                    const Expanded(child: SortioSectionLabel('AI Strictness')),
-                    Flexible(
-                      child: Text(
-                        strict.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: SortioColors.accentSoft,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 6,
-                    activeTrackColor: SortioColors.accent,
-                    inactiveTrackColor: SortioColors.borderStrong,
-                    thumbColor: SortioColors.accent,
-                    overlayColor: SortioColors.accent.withValues(alpha: 0.28),
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 13),
-                    trackShape: const RoundedRectSliderTrackShape(),
-                  ),
-                  child: Slider(
-                    value: c.strictness,
-                    min: 0,
-                    max: 100,
-                    divisions: 100,
-                    onChanged: c.setStrictness,
-                  ),
-                ),
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Strict\n(95% match needed)',
-                        style: TextStyle(fontSize: 11, height: 1.35, color: SortioColors.textMuted),
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Creative\n(Guessing allowed)',
-                        textAlign: TextAlign.right,
-                        style: TextStyle(fontSize: 11, height: 1.35, color: SortioColors.textMuted),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
+                // -- Appearance -----------------------------------------------
+                const SortioSectionLabel('Appearance'),
+                const SizedBox(height: 10),
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: SortioColors.well,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: SortioColors.border),
+                    color: SortioColors.card,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: SortioColors.borderCard),
                   ),
-                  child: Text(
-                    strict.hint,
-                    style: const TextStyle(fontSize: 12.5, height: 1.5, color: SortioColors.textSoft),
-                  ),
-                ),
-
-                const SizedBox(height: 22),
-
-                // -- House Rules ----------------------------------------------
-                const SortioSectionLabel('House Rules'),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _rulesCtrl,
-                  onChanged: c.setRules,
-                  maxLines: 4,
-                  minLines: 4,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    height: 1.55,
-                    color: SortioColors.textBody,
-                    fontFamily: SortioFonts.mono,
-                  ),
-                  cursorColor: SortioColors.accent,
-                  decoration: const InputDecoration(
-                    hintText: 'e.g., Always file Zoom receipts under /Finance',
-                    hintStyle: TextStyle(fontSize: 12.5, color: SortioColors.textMuted),
-                    filled: true,
-                    fillColor: SortioColors.well,
-                    contentPadding: EdgeInsets.all(12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(14)),
-                      borderSide: BorderSide(color: SortioColors.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(14)),
-                      borderSide: BorderSide(color: SortioColors.border),
-                    ),
+                  child: Column(
+                    children: [
+                      _SettingToggleRow(
+                        icon: Icons.dark_mode_outlined,
+                        title: 'Dark mode',
+                        subtitle: c.darkMode ? 'The slate-and-cyan look' : 'The paper-white look',
+                        value: c.darkMode,
+                        enabled: true,
+                        onChanged: c.setDarkMode,
+                        switchKey: const ValueKey('dark-mode-switch'),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Plain English. Read only by the on-device model.',
+                Text(
+                  'The theme applies instantly, everywhere in the app.',
                   style: TextStyle(fontSize: 11, color: SortioColors.textMuted),
                 ),
 
@@ -271,16 +158,92 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Deletes learned patterns, chat history and action logs. Your files stay untouched.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, height: 1.45, color: SortioColors.textMuted),
-                ),
               ],
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// One settings row: icon tile, title + subtitle, and a switch.
+class _SettingToggleRow extends StatelessWidget {
+  const _SettingToggleRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+    this.switchKey,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+  final Key? switchKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 60),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: SortioColors.well,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: SortioColors.borderTile),
+            ),
+            child: Icon(icon, size: 17, color: SortioColors.accentBright),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: enabled ? SortioColors.textBright : SortioColors.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: SortioColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+          IgnorePointer(
+            ignoring: !enabled,
+            child: Opacity(
+              opacity: enabled ? 1 : 0.45,
+              child: SortioSwitch(
+                key: switchKey,
+                value: value,
+                onChanged: onChanged,
+                width: 56,
+                height: 44,
+                trackWidth: 52,
+                trackHeight: 32,
+                thumbSize: 24,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -303,11 +266,11 @@ class _FolderRow extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: SortioColors.card,
+              color: SortioColors.well,
               borderRadius: BorderRadius.circular(11),
               border: Border.all(color: SortioColors.borderTile),
             ),
-            child: const Icon(Icons.folder_outlined, size: 17, color: SortioColors.accentBright),
+            child: Icon(Icons.folder_outlined, size: 17, color: SortioColors.accentBright),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -316,12 +279,12 @@ class _FolderRow extends StatelessWidget {
               children: [
                 Text(
                   folder.label,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFFF1F5F9)),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: SortioColors.textBright),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   folder.path,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     color: SortioColors.textMuted,
                     fontFamily: SortioFonts.mono,

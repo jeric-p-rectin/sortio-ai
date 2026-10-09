@@ -37,8 +37,8 @@ class _HomeShellState extends State<HomeShell> {
     initialTab: widget.initialPanel == StartPanel.settings ? SortioTab.settings : SortioTab.chat,
   );
 
-  /// One controller shared by Chat and Settings so folder permissions,
-  /// strictness and rules stay in sync everywhere.
+  /// One controller shared by Chat and Settings so folder permissions and the
+  /// theme stay in sync everywhere.
   late final SortioController _controller = SortioController();
 
   @override
@@ -50,22 +50,30 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    // The theme bus wraps everything (the shell holds the Scaffold) so a Dark
+    // mode switch repaints the whole app — including the screens that don't
+    // listen to the controller — without losing any state.
     return ListenableBuilder(
-      listenable: _navigation,
+      listenable: SortioThemeBus.instance,
       builder: (context, _) {
-        return Scaffold(
-          backgroundColor: SortioColors.page,
-          body: IndexedStack(
-            index: _navigation.tab.index,
-            children: [
-              HomeScreen(controller: _controller, navigation: _navigation),
-              HistoryScreen(controller: _controller, navigation: _navigation),
-              ChatScreen(controller: _controller),
-              FileManagerScreen(controller: _controller, navigation: _navigation),
-              SettingsScreen(controller: _controller),
-            ],
-          ),
-          bottomNavigationBar: SortioNavBar(navigation: _navigation),
+        return ListenableBuilder(
+          listenable: _navigation,
+          builder: (context, _) {
+            return Scaffold(
+              backgroundColor: SortioColors.page,
+              body: IndexedStack(
+                index: _navigation.tab.index,
+                children: [
+                  HomeScreen(controller: _controller, navigation: _navigation),
+                  HistoryScreen(controller: _controller, navigation: _navigation),
+                  ChatScreen(controller: _controller),
+                  FileManagerScreen(controller: _controller, navigation: _navigation),
+                  SettingsScreen(controller: _controller),
+                ],
+              ),
+              bottomNavigationBar: SortioNavBar(navigation: _navigation),
+            );
+          },
         );
       },
     );

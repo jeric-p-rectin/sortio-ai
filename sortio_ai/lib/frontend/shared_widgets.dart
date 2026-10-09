@@ -19,6 +19,7 @@ class SortioIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    context.watchSortioTheme();
     final btn = InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onPressed,
@@ -40,9 +41,10 @@ class SortioSectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    context.watchSortioTheme();
     return Text(
       text.toUpperCase(),
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 11,
         letterSpacing: 0.9,
         fontWeight: FontWeight.w600,
@@ -113,7 +115,7 @@ class SortioStatCell extends StatelessWidget {
             fit: BoxFit.scaleDown,
             child: Text.rich(
               TextSpan(
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.4,
@@ -133,7 +135,7 @@ class SortioStatCell extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             label,
-            style: const TextStyle(fontSize: 11, height: 1.3, color: SortioColors.textMuted),
+            style: TextStyle(fontSize: 11, height: 1.3, color: SortioColors.textMuted),
           ),
         ],
       ),

@@ -48,7 +48,7 @@ class SuggestionCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   s.kind.toUpperCase(),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     letterSpacing: 0.9,
                     color: SortioColors.textMuted,
@@ -58,7 +58,7 @@ class SuggestionCard extends StatelessWidget {
               ),
               Text(
                 '$index / $total',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
                   color: SortioColors.textMuted,
                   fontFamily: SortioFonts.mono,
@@ -88,7 +88,7 @@ class SuggestionCard extends StatelessWidget {
                       Expanded(
                         child: Text.rich(
                           TextSpan(
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               height: 1.45,
                               color: SortioColors.textSoft,
@@ -99,7 +99,7 @@ class SuggestionCard extends StatelessWidget {
                                     TextSpan(text: dir),
                                     TextSpan(
                                       text: name,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         color: SortioColors.accentBright,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -108,7 +108,7 @@ class SuggestionCard extends StatelessWidget {
                                 : [
                                     TextSpan(
                                       text: s.toPath,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         color: SortioColors.accentBright,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -144,11 +144,11 @@ class SuggestionCard extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.warning_amber_rounded, size: 14, color: SortioColors.amber),
+                  Icon(Icons.warning_amber_rounded, size: 14, color: SortioColors.amber),
                   const SizedBox(width: 6),
                   Text(
                     s.badge!,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: SortioColors.amber),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: SortioColors.amber),
                   ),
                 ],
               ),
@@ -173,7 +173,7 @@ class SuggestionCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
+                        Row(
                           children: [
                             Icon(Icons.auto_awesome, size: 12, color: SortioColors.accentSoft),
                             SizedBox(width: 5),
@@ -194,7 +194,7 @@ class SuggestionCard extends StatelessWidget {
                             children: [
                               TextSpan(
                                 text: s.extractLabel!,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
                                   color: SortioColors.textMuted,
@@ -203,7 +203,7 @@ class SuggestionCard extends StatelessWidget {
                               const TextSpan(text: ' '),
                               TextSpan(
                                 text: s.extractValue!,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 17,
                                   fontWeight: FontWeight.w700,
                                   color: SortioColors.textBright,
@@ -225,7 +225,7 @@ class SuggestionCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(top: 1),
                   child: Icon(Icons.info_outline, size: 16, color: SortioColors.amber),
                 ),
@@ -233,9 +233,9 @@ class SuggestionCard extends StatelessWidget {
                 Expanded(
                   child: Text.rich(
                     TextSpan(
-                      style: const TextStyle(fontSize: 13, height: 1.45, color: SortioColors.textSoft),
+                      style: TextStyle(fontSize: 13, height: 1.45, color: SortioColors.textSoft),
                       children: [
-                        const TextSpan(
+                        TextSpan(
                           text: 'Reasoning: ',
                           style: TextStyle(color: SortioColors.amber, fontWeight: FontWeight.w600),
                         ),
@@ -318,11 +318,12 @@ class _PathLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    context.watchSortioTheme();
     return SizedBox(
       width: 34,
       child: Text(
         text.toUpperCase(),
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 10,
           height: 18 / 10,
           letterSpacing: 0.6,
@@ -349,7 +350,7 @@ class _PathRow extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               height: 1.45,
               color: SortioColors.textMuted,
@@ -389,12 +390,12 @@ class _EditPathFieldState extends State<_EditPathField> {
     return TextField(
       controller: _ctrl,
       autofocus: true,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 12,
         color: SortioColors.textBody,
         fontFamily: SortioFonts.mono,
       ),
-      decoration: const InputDecoration(
+      decoration: InputDecoration(
         isDense: true,
         contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         filled: true,
@@ -481,7 +482,7 @@ class SortioDoneRow extends StatelessWidget {
       child: Row(
         children: [
           if (!skipped) ...[
-            const Icon(Icons.check, size: 16, color: SortioColors.greenSoft),
+            Icon(Icons.check, size: 16, color: SortioColors.greenSoft),
             const SizedBox(width: 8),
           ],
           Expanded(
@@ -501,7 +502,7 @@ class SortioDoneRow extends StatelessWidget {
                   detail,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     color: SortioColors.textMuted,
                     fontFamily: SortioFonts.mono,
@@ -536,7 +537,7 @@ class _UndoButton extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: skipped ? const Color(0xFF475569) : SortioColors.greenSoft.withValues(alpha: 0.45),
+            color: skipped ? SortioColors.borderStrong : SortioColors.greenSoft.withValues(alpha: 0.45),
           ),
         ),
         child: Row(
@@ -581,7 +582,7 @@ class _ActionBtn extends StatelessWidget {
   Widget build(BuildContext context) {
     final (bg, fg, border) = switch (style) {
       _BtnStyle.go => (SortioColors.accent, SortioColors.onAccent, BorderSide.none),
-      _BtnStyle.line => (Colors.transparent, SortioColors.textBody, const BorderSide(color: SortioColors.borderStrong)),
+      _BtnStyle.line => (Colors.transparent, SortioColors.textBody, BorderSide(color: SortioColors.borderStrong)),
       _BtnStyle.mute => (SortioColors.borderStrong, SortioColors.textSoft, BorderSide.none),
     };
     final btn = Container(

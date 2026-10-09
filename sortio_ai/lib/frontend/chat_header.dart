@@ -21,7 +21,7 @@ class SortioHeaderBar extends StatelessWidget {
     return Container(
       height: 60,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: SortioColors.border)),
       ),
       child: Row(
@@ -36,7 +36,7 @@ class SortioHeaderBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          const Text(
+          Text(
             'Sortio AI',
             style: TextStyle(
               fontSize: 17,

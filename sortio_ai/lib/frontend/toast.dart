@@ -21,14 +21,19 @@ class SortioToast extends StatelessWidget {
         color: SortioColors.toastBg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: SortioColors.accent.withValues(alpha: 0.45)),
-        boxShadow: const [
-          BoxShadow(color: Color(0xBF000000), offset: Offset(0, 18), blurRadius: 40, spreadRadius: -12),
+        boxShadow: [
+          BoxShadow(
+            color: SortioColors.isDark ? const Color(0xBF000000) : const Color(0x330F172A),
+            offset: const Offset(0, 18),
+            blurRadius: 40,
+            spreadRadius: -12,
+          ),
         ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(top: 1),
             child: Icon(Icons.verified_user, size: 18, color: SortioColors.accentBright),
           ),
@@ -36,7 +41,7 @@ class SortioToast extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 13, height: 1.45, color: SortioColors.textBody),
+              style: TextStyle(fontSize: 13, height: 1.45, color: SortioColors.textBody),
             ),
           ),
         ],

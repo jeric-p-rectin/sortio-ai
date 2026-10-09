@@ -21,6 +21,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'data_output.dart';
+import 'design_tokens.dart';
 import 'models.dart';
 import 'motion.dart';
 import 'sortio_core.dart' as core;
@@ -60,9 +61,11 @@ class SortioController extends ChangeNotifier {
   Map<String, FolderAccess> _folders = {
     for (final f in SortioData.folders()) f.key: f,
   };
-  double strictness = 20;
-  String rules = '';
   bool armed = false;
+
+  // --- Appearance ------------------------------------------------------------
+  /// True while the dark palette is active (the app's original look).
+  bool darkMode = true;
 
   /// All chats, newest first — drives the History (chats) screen.
   final List<ChatSession> chatSessions = <ChatSession>[];
@@ -224,9 +227,6 @@ class SortioController extends ChangeNotifier {
   bool get allResolved => !scanning && suggestions.values.every((s) => !s.isPending);
   int get appliedCount => suggestions.values.where((s) => s.state == SuggestionState.applied).length;
   String get doneLine => SortioData.doneLine(appliedCount, suggestions.length);
-
-  ({String label, String hint, String mode, int threshold}) get strictOutput =>
-      SortioData.strictness(strictness);
 
   SavingsSummary get savings => _savings;
 
@@ -410,6 +410,20 @@ class SortioController extends ChangeNotifier {
     }
   }
 
+  /// Deletes a conversation from the History (chats) list. If it was the one
+  /// open in the chat screen, the chat falls back to the new-chat welcome state.
+  void deleteSession(String id) {
+    final index = chatSessions.indexWhere((s) => s.id == id);
+    if (index == -1) return;
+    chatSessions.removeAt(index);
+    if (activeSession?.id == id) activeSession = null;
+    if (typingSessionId == id) {
+      typing = false;
+      typingSessionId = null;
+    }
+    _notify();
+  }
+
   /// Starts a fresh chat: the feed shows a welcome state and the first
   /// message creates a new session in the history.
   void startNewChat() {
@@ -432,13 +446,14 @@ class SortioController extends ChangeNotifier {
     unawaited(_rescan());
   }
 
-  void setStrictness(double value) {
-    strictness = value;
-    _notify();
-  }
+  // --- Appearance ------------------------------------------------------------
 
-  void setRules(String value) {
-    rules = value;
+  /// The Dark mode switch: swaps the palette and repaints the app.
+  void setDarkMode(bool value) => _applyTheme(dark: value);
+
+  void _applyTheme({required bool dark}) {
+    darkMode = dark;
+    SortioThemeBus.instance.setDark(dark);
     _notify();
   }
 
@@ -455,7 +470,6 @@ class SortioController extends ChangeNotifier {
     } else {
       _armTimer?.cancel();
       armed = false;
-      rules = '';
       _engine?.wipeMemory();
       _batchById.clear();
       unawaited(_refreshSavings());

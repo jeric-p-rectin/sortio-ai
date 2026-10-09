@@ -62,9 +62,10 @@ class _PopInState extends State<PopIn> with SingleTickerProviderStateMixin {
 /// Three blinking dots — mirrors the CSS `@keyframes blink` with the staggered
 /// delays (0 / .18s / .36s of a 1.1s cycle).
 class TypingDots extends StatefulWidget {
-  const TypingDots({super.key, this.color = SortioColors.textMuted});
+  const TypingDots({super.key, this.color});
 
-  final Color color;
+  /// Defaults to the muted text color of the active theme.
+  final Color? color;
 
   @override
   State<TypingDots> createState() => _TypingDotsState();
@@ -104,7 +105,10 @@ class _TypingDotsState extends State<TypingDots> with SingleTickerProviderStateM
                   child: Container(
                     width: 7,
                     height: 7,
-                    decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: widget.color ?? SortioColors.textMuted,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 ),
               ),
@@ -118,11 +122,13 @@ class _TypingDotsState extends State<TypingDots> with SingleTickerProviderStateM
 /// Pulsing glow ring for the armed "Wipe AI Memory & Logs" button — mirrors
 /// the CSS `@keyframes pulse` (box-shadow 0 -> 6px -> 0 while armed).
 class PulseBox extends StatefulWidget {
-  const PulseBox({super.key, required this.child, required this.active, this.color = SortioColors.redArm});
+  const PulseBox({super.key, required this.child, required this.active, this.color});
 
   final Widget child;
   final bool active;
-  final Color color;
+
+  /// Defaults to the danger color of the active theme.
+  final Color? color;
 
   @override
   State<PulseBox> createState() => _PulseBoxState();
@@ -166,7 +172,13 @@ class _PulseBoxState extends State<PulseBox> with SingleTickerProviderStateMixin
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             boxShadow: widget.active
-                ? [BoxShadow(color: widget.color.withValues(alpha: alpha), blurRadius: 0, spreadRadius: spread)]
+                ? [
+                    BoxShadow(
+                      color: (widget.color ?? SortioColors.redArm).withValues(alpha: alpha),
+                      blurRadius: 0,
+                      spreadRadius: spread,
+                    ),
+                  ]
                 : const [],
           ),
           child: child,
@@ -191,9 +203,9 @@ class SortioSwitch extends StatelessWidget {
     this.trackHeight = 32,
     this.thumbSize = 24,
     this.travel = 20,
-    this.trackOff = SortioColors.borderStrong,
-    this.trackOn = SortioColors.accent,
-    this.thumbOff = SortioColors.textSoft,
+    this.trackOff,
+    this.trackOn,
+    this.thumbOff,
     this.thumbOn = Colors.white,
     this.duration = const Duration(milliseconds: 280),
   });
@@ -206,14 +218,20 @@ class SortioSwitch extends StatelessWidget {
   final double trackHeight;
   final double thumbSize;
   final double travel;
-  final Color trackOff;
-  final Color trackOn;
-  final Color thumbOff;
-  final Color thumbOn;
+
+  /// Track/thumb colors — defaulting to the active theme's palette.
+  final Color? trackOff;
+  final Color? trackOn;
+  final Color? thumbOff;
+  final Color? thumbOn;
   final Duration duration;
 
   @override
   Widget build(BuildContext context) {
+    final offTrack = trackOff ?? SortioColors.borderStrong;
+    final onTrack = trackOn ?? SortioColors.accent;
+    final offThumb = thumbOff ?? SortioColors.textSoft;
+    final onThumb = thumbOn ?? Colors.white;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => onChanged(!value),
@@ -226,7 +244,7 @@ class SortioSwitch extends StatelessWidget {
             width: trackWidth,
             height: trackHeight,
             decoration: BoxDecoration(
-              color: value ? trackOn : trackOff,
+              color: value ? onTrack : offTrack,
               borderRadius: BorderRadius.circular(999),
             ),
             child: AnimatedAlign(
@@ -240,7 +258,7 @@ class SortioSwitch extends StatelessWidget {
                   width: thumbSize,
                   height: thumbSize,
                   decoration: BoxDecoration(
-                    color: value ? thumbOn : thumbOff,
+                    color: value ? onThumb : offThumb,
                     shape: BoxShape.circle,
                   ),
                 ),

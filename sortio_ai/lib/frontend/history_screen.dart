@@ -40,7 +40,7 @@ class HistoryScreen extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
                 child: Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -78,13 +78,17 @@ class HistoryScreen extends StatelessWidget {
                         itemBuilder: (context, i) {
                           return Padding(
                             padding: EdgeInsets.only(bottom: i == chats.length - 1 ? 0 : 10),
-                            child: _ChatRow(
-                              session: chats[i],
-                              active: controller.activeSession?.id == chats[i].id,
-                              onTap: () {
-                                controller.openSession(chats[i].id);
-                                navigation.openChat();
-                              },
+                            child: _SwipeToDelete(
+                              key: ValueKey(chats[i].id),
+                              onDelete: () => controller.deleteSession(chats[i].id),
+                              child: _ChatRow(
+                                session: chats[i],
+                                active: controller.activeSession?.id == chats[i].id,
+                                onTap: () {
+                                  controller.openSession(chats[i].id);
+                                  navigation.openChat();
+                                },
+                              ),
                             ),
                           );
                         },
@@ -114,7 +118,7 @@ class _NewChatButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: SortioColors.accent.withValues(alpha: 0.35)),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.add, size: 16, color: SortioColors.accentBright),
@@ -125,6 +129,96 @@ class _NewChatButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Swipe a card left to reveal a trash button; tapping the button deletes it.
+/// Swiping back (or releasing short of the threshold) closes it again.
+class _SwipeToDelete extends StatefulWidget {
+  const _SwipeToDelete({super.key, required this.child, required this.onDelete});
+
+  final Widget child;
+  final VoidCallback onDelete;
+
+  @override
+  State<_SwipeToDelete> createState() => _SwipeToDeleteState();
+}
+
+class _SwipeToDeleteState extends State<_SwipeToDelete> {
+  static const double _actionWidth = 64;
+  static const double _gap = 10;
+  static const double _openExtent = _actionWidth + _gap;
+
+  double _dx = 0;
+  bool _dragging = false;
+
+  bool get _open => _dx <= -_openExtent / 2;
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    setState(() {
+      _dragging = true;
+      _dx = (_dx + d.delta.dx).clamp(-_openExtent, 0.0);
+    });
+  }
+
+  void _onDragEnd(DragEndDetails d) {
+    final v = d.primaryVelocity ?? 0;
+    setState(() {
+      _dragging = false;
+      if (v < -300) {
+        _dx = -_openExtent;
+      } else if (v > 300) {
+        _dx = 0;
+      } else {
+        _dx = _open ? -_openExtent : 0;
+      }
+    });
+  }
+
+  void _close() => setState(() => _dx = 0);
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragUpdate: _onDragUpdate,
+      onHorizontalDragEnd: _onDragEnd,
+      child: Stack(
+        children: [
+          // Trash button, revealed behind the card as it slides left.
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: SortioPressScale(
+                onTap: widget.onDelete,
+                child: Container(
+                  width: _actionWidth,
+                  decoration: BoxDecoration(
+                    color: SortioColors.redArm,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.delete_outline, size: 22, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+          AnimatedContainer(
+            duration: _dragging ? Duration.zero : const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            transform: Matrix4.translationValues(_dx, 0, 0),
+            child: _dx == 0
+                ? widget.child
+                // While open, a tap on the card just closes it.
+                : GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _close,
+                    child: AbsorbPointer(child: widget.child),
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -160,7 +254,7 @@ class _ChatRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(11),
                 border: Border.all(color: SortioColors.borderTile),
               ),
-              child: const Icon(Icons.chat_bubble_outline, size: 18, color: SortioColors.accentBright),
+              child: Icon(Icons.chat_bubble_outline, size: 18, color: SortioColors.accentBright),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -171,7 +265,7 @@ class _ChatRow extends StatelessWidget {
                     session.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: SortioColors.textBody,
@@ -182,7 +276,7 @@ class _ChatRow extends StatelessWidget {
                     session.preview,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: SortioColors.textMuted),
+                    style: TextStyle(fontSize: 12, color: SortioColors.textMuted),
                   ),
                 ],
               ),
@@ -190,7 +284,7 @@ class _ChatRow extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               session.when,
-              style: const TextStyle(fontSize: 11, color: SortioColors.textMuted),
+              style: TextStyle(fontSize: 11, color: SortioColors.textMuted),
             ),
           ],
         ),
@@ -223,12 +317,12 @@ class _EmptyChats extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'No chats yet',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: SortioColors.textBright),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'Ask Sortio something and the conversation will show up here.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: SortioColors.textMuted),

@@ -21,7 +21,7 @@ class SortioComposerBar extends StatelessWidget {
     final c = controller;
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: SortioColors.page,
         border: Border(top: BorderSide(color: SortioColors.border)),
       ),
@@ -29,14 +29,17 @@ class SortioComposerBar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            height: 56,
+            constraints: const BoxConstraints(minHeight: 56),
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: SortioColors.well,
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(28),
               border: Border.all(color: SortioColors.border),
             ),
             child: Row(
+              // Buttons stay pinned to the bottom edge; as the input grows the
+              // bar extends upwards only.
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 SortioPressScale(
                   onTap: c.onAttachTapped,
@@ -48,27 +51,32 @@ class SortioComposerBar extends StatelessWidget {
                       shape: BoxShape.circle,
                       border: Border.all(color: SortioColors.borderTile),
                     ),
-                    child: const Icon(Icons.add, size: 20, color: SortioColors.textBody),
+                    child: Icon(Icons.add, size: 20, color: SortioColors.textBody),
                   ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
-                  child: SizedBox(
-                    height: 44,
-                    child: TextField(
-                      controller: composerController,
-                      onChanged: c.setComposerText,
-                      onSubmitted: (_) => c.sendMessage(),
-                      textInputAction: TextInputAction.send,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 14.5, color: Color(0xFFF1F5F9)),
-                      cursorColor: SortioColors.accent,
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                        hintText: 'Ask Sortio to find or tidy files…',
-                        hintStyle: TextStyle(fontSize: 14.5, color: SortioColors.textMuted),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 44),
+                    child: Center(
+                      child: TextField(
+                        controller: composerController,
+                        onChanged: c.setComposerText,
+                        minLines: 1,
+                        maxLines: 5,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.newline,
+                        textAlign: TextAlign.center,
+                        textAlignVertical: TextAlignVertical.center,
+                        style: TextStyle(fontSize: 14.5, height: 1.3, color: SortioColors.textBody),
+                        cursorColor: SortioColors.accent,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                          hintText: 'Ask Sortio to find or tidy files…',
+                          hintStyle: TextStyle(fontSize: 14.5, height: 1.3, color: SortioColors.textMuted),
+                        ),
                       ),
                     ),
                   ),
@@ -78,11 +86,11 @@ class SortioComposerBar extends StatelessWidget {
                   child: Container(
                     width: 44,
                     height: 44,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       color: SortioColors.accent,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.send, size: 19, color: SortioColors.onAccent),
+                    child: Icon(Icons.send, size: 19, color: SortioColors.onAccent),
                   ),
                 ),
               ],
