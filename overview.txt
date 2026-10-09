@@ -8,6 +8,7 @@ An AI agent that runs entirely on your laptop and Android phone, and helps with 
 • Rename scanned documents based on what's inside them
 • Find files by describing them ("that invoice from March")
 It never changes a file without asking first. Nothing leaves the device, so the privacy story is easy to show: turn off Wi-Fi and it still works.
+
 The Problem
 Downloads folders pile up, scans are named things like IMG_2043.pdf, and finding one old invoice means opening file after file. Tidying by hand is boring, so it rarely gets done. Cloud tools can help, but they mean uploading private documents to someone else's server.
 
