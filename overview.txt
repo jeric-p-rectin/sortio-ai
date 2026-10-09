@@ -3,7 +3,7 @@ Hackathon project plan: a private, on-device assistant that organizes your files
 
 The Idea
 
-An AI agent that runs entirely on your laptop and Android phone, and helps with everyday file chores:
+An AI agent that runs entirely on your Android phone (android app), and helps with everyday file chores:
 • Organize the messy Downloads folder
 • Rename scanned documents based on what's inside them
 • Find files by describing them ("that invoice from March")
