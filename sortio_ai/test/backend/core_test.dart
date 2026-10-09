@@ -257,6 +257,44 @@ void main() {
       expect(exe.existsSync(), isFalse); // files untouched by wipe
     });
 
+    test('photo folders: only recent photos of documents are suggested', () async {
+      final camera = p.join(tmp.path, 'DCIM', 'Camera');
+      await Directory(camera).create(recursive: true);
+      Future<File> shoot(String name) => File(p.join(camera, name)).writeAsString('x');
+      final fresh = await shoot('IMG_20261009_101500.jpg'); // not OCR'd yet
+      final receipt = await shoot('IMG_20261008_090000.jpg');
+      final selfie = await shoot('IMG_20261007_180000.jpg');
+      final old = await shoot('IMG_20260101_120000.jpg');
+      await old.setLastModified(DateTime.now().subtract(const Duration(days: 60)));
+      await shoot('VID_20261009.mp4');
+
+      final core = open(allowed: [camera])..photoRoots = {p.normalize(camera)};
+      await core.refreshIndex();
+      core.saveOcrText(receipt.path,
+          'OFFICIAL RECEIPT 7-Eleven Store Katipunan Ave Quezon City TOTAL 58.00 CASH CHANGE');
+      core.saveOcrText(selfie.path, 'GO TEAM');
+      core.saveOcrText(old.path, 'OFFICIAL RECEIPT Mercury Drug TOTAL 120.00 thank you come again');
+
+      final s = {for (final x in await core.scan([camera])) x.fileName: x};
+      expect(s.keys, unorderedEquals([p.basename(fresh.path), p.basename(receipt.path)]));
+      expect(s[p.basename(fresh.path)]!.needsDocumentCheck, isTrue);
+      final r = s[p.basename(receipt.path)]!;
+      expect(r.needsDocumentCheck, isFalse);
+      expect(r.needsRename, isTrue);
+      expect(r.category, LocalSortioCore.photoCategory);
+    });
+
+    test('nested folders created by apply are all removed by undo', () async {
+      final f = await touch('junk.exe');
+      final core = open(allowed: [downloads]);
+      final q = await core.quarantine(f.path);
+      expect(q.rejected, isEmpty);
+      expect(Directory(p.join(downloads, 'Quarantine', 'holding_bin')).existsSync(), isTrue);
+      await core.undoBatch(q.batchId);
+      expect(f.existsSync(), isTrue);
+      expect(Directory(p.join(downloads, 'Quarantine')).existsSync(), isFalse);
+    });
+
     test('house rules win over category rules and read OCR text', () async {
       await touch('Zoom_Receipt_March.pdf');
       final scan = await touch('IMG_2043.pdf');
@@ -363,9 +401,9 @@ void main() {
       expect(updated, hasLength(1)); // only the scan needs a rename
       final s = updated.single;
       expect(s.id, suggestions.firstWhere((x) => x.fileName == 'IMG_2043.pdf').id);
-      expect(s.targetName, '2026-03_Meralco_Bill.pdf');
+      expect(s.targetName, '2026-03_Meralco_Statement.pdf');
       expect(s.aiNamed, isTrue);
-      expect(s.reason, contains('Meralco bill from March 2026'));
+      expect(s.reason, contains('Meralco statement from March 2026'));
 
       final merged = [
         for (final x in suggestions) x.id == s.id ? s : x,
@@ -373,7 +411,7 @@ void main() {
       final result = await core.apply(merged);
       expect(result.rejected, isEmpty);
       expect(
-          File(p.join(downloads, 'Scans', '2026-03_Meralco_Bill.pdf'))
+          File(p.join(downloads, 'Scans', '2026-03_Meralco_Statement.pdf'))
               .existsSync(),
           isTrue);
       expect(ocrCalls, 1);
@@ -394,7 +432,7 @@ void main() {
 
       // Rescan: the cached AI name is used directly, no OCR, no model call.
       final again = await core.scan([downloads]);
-      expect(again.single.targetName, '2026-03_Meralco_Bill.pdf');
+      expect(again.single.targetName, '2026-03_Meralco_Statement.pdf');
       expect(again.single.aiNamed, isTrue);
       expect(again.single.needsRename, isFalse);
       await core.aiRename(again, RenameService(llm), ocr: ocr).toList();
@@ -423,7 +461,7 @@ void main() {
               ocr: (_) async => ocrText)
           .toList();
       expect(updated.map((s) => s.targetName),
-          unorderedEquals(['2026-03_Meralco_Bill.pdf', '2026-03_Meralco_Bill (1).pdf']));
+          unorderedEquals(['2026-03_Meralco_Statement.pdf', '2026-03_Meralco_Statement (1).pdf']));
     });
   });
 }

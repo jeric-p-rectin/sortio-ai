@@ -54,6 +54,9 @@ void main() {
       expect(c.clean('MANILA ELECTRIC COMPANY (MERALCO)'), 'Meralco');
       expect(c.clean('MERALCO'), 'Meralco');
       expect(c.clean('Acme Solutions Inc.'), 'Acme-Solutions');
+      expect(c.clean('ACME SOLUTIONS INC.'), 'Acme-Solutions');
+      expect(c.clean('MERCURY DRUG CORPORATION'), 'Mercury-Drug');
+      expect(c.clean('BDO'), 'BDO');
       expect(c.clean('7-Eleven Store #4521'), '7-Eleven');
       expect(c.clean('PLDT'), 'PLDT');
       expect(c.clean('GCash'), 'GCash');
@@ -96,8 +99,8 @@ void main() {
       final llm = FakeLlm({'issuer': 'MANILA ELECTRIC COMPANY (MERALCO)', 'doc_type': 'Bill'});
       final r = (await RenameService(llm)
           .propose(fileName: 'IMG_2043.pdf', ocrText: meralco))!;
-      expect(r.newName, '2026-03_Meralco_Bill.pdf');
-      expect(r.reason, 'Meralco bill from March 2026');
+      expect(r.newName, '2026-03_Meralco_Statement.pdf');
+      expect(r.reason, 'Meralco statement from March 2026');
       expect(r.confidence, greaterThan(0.9));
       // Only the short excerpt goes to the model.
       expect(llm.lastUser, isNotNull);
@@ -108,6 +111,13 @@ void main() {
       final r = (await RenameService(llm)
           .propose(fileName: 'IMG_2043.pdf', ocrText: meralco))!;
       expect(r.newName, '2026-03_Meralco_Statement.pdf');
+    });
+
+    test('a printed heading decides the type over the model', () async {
+      final llm = FakeLlm({'issuer': '7-Eleven', 'doc_type': 'Bill'});
+      final r = (await RenameService(llm)
+          .propose(fileName: 'IMG_1.jpg', ocrText: sevenEleven))!;
+      expect(r.newName, '2026-02_7-Eleven_Receipt.jpg');
     });
 
     test('falls back to the file date and to "Document"', () async {

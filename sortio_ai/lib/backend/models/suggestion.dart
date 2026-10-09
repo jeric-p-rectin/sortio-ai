@@ -27,6 +27,10 @@ class Suggestion {
   /// True when the target name came from the AI rename pipeline.
   final bool aiNamed;
 
+  /// A recent photo that may be a document. The UI should not show it until
+  /// OCR confirms it has document text (see `LocalSortioCore.photoRoots`).
+  final bool needsDocumentCheck;
+
   const Suggestion({
     required this.id,
     required this.type,
@@ -37,13 +41,20 @@ class Suggestion {
     this.category,
     this.needsRename = false,
     this.aiNamed = false,
+    this.needsDocumentCheck = false,
   });
 
   String get fileName => p.basename(sourcePath);
   String get targetName => p.basename(targetPath);
 
   /// Lets the UI edit the proposed name/destination before approving.
-  Suggestion copyWith({String? targetPath, String? reason, double? confidence}) =>
+  Suggestion copyWith({
+    String? targetPath,
+    String? reason,
+    double? confidence,
+    bool? needsRename,
+    bool? needsDocumentCheck,
+  }) =>
       Suggestion(
         id: id,
         type: type,
@@ -52,8 +63,9 @@ class Suggestion {
         reason: reason ?? this.reason,
         confidence: confidence ?? this.confidence,
         category: category,
-        needsRename: needsRename,
+        needsRename: needsRename ?? this.needsRename,
         aiNamed: aiNamed,
+        needsDocumentCheck: needsDocumentCheck ?? this.needsDocumentCheck,
       );
 
   Map<String, dynamic> toJson() => {
@@ -66,6 +78,7 @@ class Suggestion {
         'category': category,
         'needsRename': needsRename,
         'aiNamed': aiNamed,
+        'needsDocumentCheck': needsDocumentCheck,
       };
 
   @override

@@ -179,8 +179,17 @@ class SortioController extends ChangeNotifier {
   List<String> get _allowedRoots => [
         for (final f in _folders.values)
           if (f.allowed)
-            p.join(SortioData.storageRoot, SortioData.folderDirs[f.key] ?? f.label),
+            for (final dir in SortioData.folderDirs[f.key] ?? [f.label])
+              p.normalize(p.join(SortioData.storageRoot, dir)),
       ];
+
+  /// Allowed roots that hold photos (camera roll, pictures, screenshots).
+  Set<String> get _photoRoots => {
+        for (final f in _folders.values)
+          if (f.allowed && SortioData.photoFolderKeys.contains(f.key))
+            for (final dir in SortioData.folderDirs[f.key]!)
+              p.normalize(p.join(SortioData.storageRoot, dir)),
+      };
 
   /// "/storage/emulated/0/Download/a.pdf" → "Download/a.pdf"
   static String _display(String path) {
@@ -329,14 +338,44 @@ class SortioController extends ChangeNotifier {
 
     // Scans still to be named, plus ones already named from the cache (they
     // still need their amount / sensitive badge on the card).
+    final checks = [
+      for (final s in _engineById.values)
+        if (s.needsDocumentCheck) s,
+    ];
     final scans = [
       for (final s in _engineById.values)
-        if (s.needsRename || s.aiNamed) s,
+        if (!s.needsDocumentCheck && (s.needsRename || s.aiNamed)) s,
     ];
-    if (scans.isEmpty) return;
+    if (scans.isEmpty && checks.isEmpty) return;
     aiBusy = true;
     _notify();
     try {
+      // Photos: OCR decides. Documents get a card; ordinary photos are
+      // dropped silently and never touched.
+      for (final s in checks) {
+        if (stale()) return;
+        var text = engine.ocrTextFor(s.sourcePath);
+        if (text == null) {
+          try {
+            text = await ocr.read(s.sourcePath);
+          } on Object catch (e) {
+            debugPrint('OCR failed for ${s.sourcePath}: $e');
+            text = '';
+          }
+          engine.saveOcrText(s.sourcePath, text);
+        }
+        if (stale()) return;
+        if (!core.RulesEngine.looksLikeDocument(text)) {
+          _engineById.remove(s.id);
+          continue;
+        }
+        final confirmed = s.copyWith(needsDocumentCheck: false);
+        _engineById[s.id] = confirmed;
+        suggestions[s.id] = _toCard(confirmed);
+        scans.add(confirmed);
+        _notify();
+      }
+
       for (final s in scans) {
         if (stale()) return;
         var text = engine.ocrTextFor(s.sourcePath);
@@ -379,15 +418,20 @@ class SortioController extends ChangeNotifier {
     scanning = true;
     final generation = ++_scanGeneration;
     _notify();
+    engine.photoRoots = _photoRoots;
     final found = await engine.scan(_allowedRoots);
     if (_disposed || generation != _scanGeneration) return;
     suggestions.clear();
     _engineById.clear();
     _batchById.clear();
     _insightsById.clear();
-    for (final s in found.take(25)) {
+    for (final s in found.where((s) => !s.needsDocumentCheck).take(25)) {
       _engineById[s.id] = s;
       suggestions[s.id] = _toCard(s);
+    }
+    // Recent photos that may be documents: no card until OCR confirms it.
+    for (final s in found.where((s) => s.needsDocumentCheck).take(25)) {
+      _engineById[s.id] = s;
     }
     scanning = false;
     _syncDemoReply();
@@ -467,7 +511,9 @@ class SortioController extends ChangeNotifier {
   static String? _folderKeyFor(String path) {
     if (path.contains('/${core.LocalSortioCore.quarantineFolderName}/')) return 'quarantine';
     for (final entry in SortioData.folderDirs.entries) {
-      if (p.isWithin(p.join(SortioData.storageRoot, entry.value), path)) return entry.key;
+      for (final dir in entry.value) {
+        if (p.isWithin(p.join(SortioData.storageRoot, dir), path)) return entry.key;
+      }
     }
     return null;
   }

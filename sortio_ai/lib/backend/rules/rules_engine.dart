@@ -75,9 +75,22 @@ class RulesEngine {
   };
 
   /// Folder name used for quarantine suggestions.
-  static const quarantineCategory = 'Sortio Quarantine';
+  static const quarantineCategory = 'Quarantine/holding_bin';
 
   static const _scannable = {'pdf', 'jpg', 'jpeg', 'png', 'heic', 'webp'};
+
+  static const _imageExtensions = {'jpg', 'jpeg', 'png', 'heic', 'webp', 'bmp'};
+
+  static bool isImage(String fileName) =>
+      _imageExtensions.contains(p.extension(fileName).replaceFirst('.', '').toLowerCase());
+
+  /// Enough readable text to call a photo a document (receipt, bill, ID),
+  /// not just a picture with a sign or a caption in it.
+  static bool looksLikeDocument(String? ocrText) {
+    if (ocrText == null) return false;
+    final words = RegExp(r'[A-Za-z]{2,}').allMatches(ocrText).length;
+    return words >= 8;
+  }
 
   static final _screenshot = RegExp(r'^screenshot', caseSensitive: false);
   static final _scanWord = RegExp(r'scan', caseSensitive: false);

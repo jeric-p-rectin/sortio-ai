@@ -36,9 +36,9 @@ abstract final class SortioData {
         ),
       ];
 
-  static List<FolderAccess> folders({bool downloads = true, bool screenshots = true, bool documents = false}) => [
+  static List<FolderAccess> folders({bool downloads = true, bool photos = true, bool documents = false}) => [
         FolderAccess(key: 'downloads', label: 'Downloads', path: '~/Downloads', allowed: downloads),
-        FolderAccess(key: 'screenshots', label: 'Screenshots', path: '~/Pictures/Screenshots', allowed: screenshots),
+        FolderAccess(key: 'photos', label: 'Photos', path: '~/DCIM/Camera · ~/Pictures', allowed: photos),
         FolderAccess(key: 'documents', label: 'Documents', path: '~/Documents', allowed: documents),
       ];
 
@@ -242,11 +242,16 @@ abstract final class SortioData {
 
   /// Shared storage root on Android and where each sandbox folder lives in it.
   static const String storageRoot = '/storage/emulated/0';
-  static const Map<String, String> folderDirs = {
-    'downloads': 'Download',
-    'screenshots': 'Pictures/Screenshots',
-    'documents': 'Documents',
+  static const Map<String, List<String>> folderDirs = {
+    'downloads': ['Download'],
+    // Camera roll, saved pictures and screenshots. Only photos of documents
+    // are ever suggested from here (see LocalSortioCore.photoRoots).
+    'photos': ['DCIM/Camera', 'Pictures', 'Pictures/Screenshots'],
+    'documents': ['Documents'],
   };
+
+  /// Folder keys whose files follow the photo policy.
+  static const Set<String> photoFolderKeys = {'photos'};
 
   /// Summary line shown once every suggestion has been resolved.
   static String doneLine(int appliedCount, [int total = 2]) {

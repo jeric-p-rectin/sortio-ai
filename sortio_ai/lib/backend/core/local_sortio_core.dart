@@ -36,6 +36,15 @@ class LocalSortioCore implements SortioCore {
   /// the built-in category rules.
   HouseRules houseRules = HouseRules.empty;
 
+  /// Camera / picture folders. Ordinary photos there are never touched:
+  /// only recent images that turn out to be documents (by OCR) are suggested.
+  Set<String> photoRoots = const {};
+
+  /// How far back to look in [photoRoots].
+  Duration photoWindow = const Duration(days: 30);
+
+  static const photoCategory = 'Scans';
+
   /// [dataDir] is app-private storage for the database, e.g. Flutter's
   /// `getApplicationSupportDirectory()`.
   LocalSortioCore({
@@ -79,8 +88,15 @@ class LocalSortioCore implements SortioCore {
         if (entity is! File) continue;
         final name = p.basename(entity.path);
         if (RulesEngine.isIgnored(name)) continue;
-        final match = _rules.classify(name);
         final indexed = _db.file(entity.path);
+
+        if (photoRoots.contains(folder)) {
+          final photo = _photoSuggestion(entity, folder, indexed, claimed);
+          if (photo != null) suggestions.add(photo);
+          continue;
+        }
+
+        final match = _rules.classify(name);
         final houseRule = houseRules.match(name, indexed?.ocrText);
         if (match == null && houseRule == null) continue;
 
@@ -187,6 +203,40 @@ class LocalSortioCore implements SortioCore {
     }
   }
 
+  /// Photo-folder policy: images from the last [photoWindow] that are (or
+  /// may be) documents go to `Scans`; everything else is left alone.
+  Suggestion? _photoSuggestion(
+      File file, String root, IndexedFile? indexed, Set<String> claimed) {
+    final name = p.basename(file.path);
+    if (!RulesEngine.isImage(name)) return null;
+    final modified = indexed?.modified ?? file.statSync().modified;
+    if (DateTime.now().difference(modified) > photoWindow) return null;
+
+    final text = indexed?.ocrText;
+    final known = text != null;
+    if (known && !RulesEngine.looksLikeDocument(text)) return null;
+
+    final rule = houseRules.match(name, text);
+    final category = rule?.folder ?? photoCategory;
+    final aiName = known ? indexed?.aiName : null;
+    final target = uniqueTarget(p.join(root, category, aiName ?? name), claimed);
+    claimed.add(p.canonicalize(target));
+    return Suggestion(
+      id: newId(),
+      type: ActionType.move,
+      sourcePath: file.path,
+      targetPath: target,
+      reason: rule != null
+          ? 'Your rule: "${rule.source}"'
+          : 'Photo of a document → $category',
+      confidence: rule != null ? 1.0 : 0.8,
+      category: category,
+      needsRename: aiName == null,
+      aiNamed: aiName != null,
+      needsDocumentCheck: !known,
+    );
+  }
+
   @override
   Future<ApplyResult> apply(List<Suggestion> approved) async {
     final batchId = newId();
@@ -205,10 +255,17 @@ class LocalSortioCore implements SortioCore {
           await Directory(s.targetPath).create();
           applied.add(_log(batchId, s.type, s.targetPath, s.targetPath));
         } else {
-          final parent = p.dirname(s.targetPath);
-          if (!await Directory(parent).exists()) {
-            await Directory(parent).create(recursive: true);
-            applied.add(_log(batchId, ActionType.createFolder, parent, parent));
+          // Create (and log) every missing folder level, outermost first, so
+          // undo removes them innermost first once they are empty.
+          final missing = <String>[];
+          for (var dir = p.dirname(s.targetPath);
+              !await Directory(dir).exists() && _validator.isAllowed(dir);
+              dir = p.dirname(dir)) {
+            missing.insert(0, dir);
+          }
+          for (final dir in missing) {
+            await Directory(dir).create();
+            applied.add(_log(batchId, ActionType.createFolder, dir, dir));
           }
           await moveFile(s.sourcePath, s.targetPath);
           _db.movePath(s.sourcePath, s.targetPath);
