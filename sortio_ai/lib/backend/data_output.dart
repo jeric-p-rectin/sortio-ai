@@ -219,16 +219,47 @@ abstract final class SortioData {
 
   static const String emptyMessageHint = 'Try: "Find my March bank statement and file it."';
 
+  /// Shared storage root on Android and where each sandbox folder lives in it.
+  static const String storageRoot = '/storage/emulated/0';
+  static const Map<String, String> folderDirs = {
+    'downloads': 'Download',
+    'screenshots': 'Pictures/Screenshots',
+    'documents': 'Documents',
+  };
+
   /// Summary line shown once every suggestion has been resolved.
-  static String doneLine(int appliedCount) {
-    switch (appliedCount) {
-      case 2:
-        return 'All set: 2 tidy-ups applied on this device. Every move is logged, so you can undo anytime.';
-      case 1:
-        return 'Done: 1 tidy-up applied, 1 left as is. You can undo anytime.';
-      default:
-        return 'No changes made. Your files are exactly where they were.';
+  static String doneLine(int appliedCount, [int total = 2]) {
+    if (total == 0) {
+      return 'Your allowed folders are already tidy. Nothing to change.';
     }
+    final left = total - appliedCount;
+    if (appliedCount == 0) {
+      return 'No changes made. Your files are exactly where they were.';
+    }
+    final applied = appliedCount == 1 ? '1 tidy-up' : '$appliedCount tidy-ups';
+    if (left == 0) {
+      return 'All set: $applied applied on this device. Every move is logged, so you can undo anytime.';
+    }
+    return 'Done: $applied applied, $left left as is. You can undo anytime.';
+  }
+
+  static const String scanningLine = 'Scanning your allowed folders on this device…';
+  static const String permissionHint =
+      'Allow "All files access" for Sortio in Settings so it can tidy your folders. Nothing is uploaded.';
+
+  /// Reply to a tidy request after a fresh scan.
+  static String scanReply(int count, List<String> folderNames) => count == 0
+      ? 'I checked ${joinNames(folderNames)}. Everything is already tidy.'
+      : 'I checked ${joinNames(folderNames)} and have $count suggestion${count == 1 ? '' : 's'} for you above. Nothing moves until you approve.';
+
+  /// Reply to a search request.
+  static String searchReply(String query, List<({String name, String where, String why})> hits) {
+    if (hits.isEmpty) {
+      return 'I could not find anything matching "$query" in your allowed folders.';
+    }
+    final lines = hits.take(5).map((h) => '• ${h.name}\n   in ${h.where} (${h.why})').join('\n');
+    final more = hits.length > 5 ? '\n…and ${hits.length - 5} more.' : '';
+    return 'Found ${hits.length} file${hits.length == 1 ? '' : 's'}:\n$lines$more';
   }
 
   /// Strictness slider output: threshold % + mode label + explainer.
