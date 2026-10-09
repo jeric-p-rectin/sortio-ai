@@ -59,7 +59,7 @@ class _HomeShellState extends State<HomeShell> {
             index: _navigation.tab.index,
             children: [
               HomeScreen(controller: _controller, navigation: _navigation),
-              HistoryScreen(navigation: _navigation),
+              HistoryScreen(controller: _controller, navigation: _navigation),
               ChatScreen(controller: _controller),
               FileManagerScreen(controller: _controller, navigation: _navigation),
               SettingsScreen(controller: _controller),

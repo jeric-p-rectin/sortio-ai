@@ -34,7 +34,17 @@ enum StartPanel { none, settings }
 
 class SortioController extends ChangeNotifier {
   SortioController() {
+    _seedChats();
     unawaited(_init());
+  }
+
+  /// Seeds the chat history with the scripted demo conversation and a few
+  /// past chats; the demo chat is the one open in the chat screen.
+  void _seedChats() {
+    chatSessions
+      ..clear()
+      ..addAll(SortioData.chatSessions());
+    activeSession = chatSessions.isEmpty ? null : chatSessions.first;
   }
 
   // --- Core state -----------------------------------------------------------
@@ -57,8 +67,23 @@ class SortioController extends ChangeNotifier {
   String rules = '';
   bool armed = false;
 
-  final List<ChatMessage> extraMessages = <ChatMessage>[];
+  /// All chats, newest first — drives the History (chats) screen.
+  final List<ChatSession> chatSessions = <ChatSession>[];
+
+  /// The conversation currently open in the chat screen. Null while a brand
+  /// new chat has no messages yet (the feed shows a welcome state).
+  ChatSession? activeSession;
+
+  /// True while the scripted demo conversation is the one on screen — its
+  /// suggestion cards belong to that conversation only.
+  bool get isScriptedChat => activeSession?.id == _cardsSessionId;
+
+  /// The chat that owns the suggestion cards: the seeded demo chat at start,
+  /// then whichever chat last asked Sortio to tidy (its scan fills the cards).
+  String _cardsSessionId = SortioData.scriptedChatId;
+
   bool typing = false;
+  String? typingSessionId;
   String composerText = '';
 
   /// True while the engine is scanning (no "done" line yet).
@@ -77,8 +102,6 @@ class SortioController extends ChangeNotifier {
   Future<void>? _modelReady;
   bool settingUpModel = false;
 
-  /// History entries that are not file actions (searches, wipes), this session.
-  final List<({DateTime at, HistoryEntry entry})> _sessionEvents = [];
   final Map<String, core.ContentInsights> _insightsById = {};
   int _scanGeneration = 0;
   bool aiBusy = false;
@@ -268,9 +291,27 @@ class SortioController extends ChangeNotifier {
       suggestions[s.id] = _toCard(s);
     }
     scanning = false;
+    _syncDemoReply();
     _notify();
     unawaited(_publishLiveData());
     unawaited(_runAi());
+  }
+
+  /// The seeded demo chat says what the real scan found, instead of the
+  /// prototype's scripted "Found your bill and 2 other files".
+  void _syncDemoReply() {
+    if (_cardsSessionId != SortioData.scriptedChatId) return;
+    for (final chat in chatSessions) {
+      if (chat.id != SortioData.scriptedChatId || chat.messages.length < 2) continue;
+      final seeded = chat.messages[1];
+      if (seeded.isUser) return;
+      chat.messages[1] = ChatMessage(
+        id: seeded.id,
+        isUser: false,
+        text: SortioData.scanReply(suggestions.length, visibleFolderNames),
+      );
+      return;
+    }
   }
 
   Future<void> _refreshSavings() async {
@@ -303,15 +344,6 @@ class SortioController extends ChangeNotifier {
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
 
-  static String _when(DateTime t) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(t.year, t.month, t.day);
-    final hm = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-    if (day == today) return 'Today · $hm';
-    if (day == today.subtract(const Duration(days: 1))) return 'Yesterday';
-    return '${_months[t.month - 1]} ${t.day}';
-  }
 
   static String _size(int bytes) {
     if (bytes >= 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
@@ -340,58 +372,13 @@ class SortioController extends ChangeNotifier {
     return null;
   }
 
-  HistoryEntry _historyFor(core.ActionRecord a) {
-    final quarantine = a.targetPath.contains(core.LocalSortioCore.quarantineFolderName);
-    final renamed = p.basename(a.sourcePath) != p.basename(a.targetPath);
-    final title = quarantine
-        ? 'Quarantined a file'
-        : renamed
-            ? 'Renamed & moved a file'
-            : 'Moved a file';
-    return HistoryEntry(
-      id: a.id,
-      title: a.undone ? '$title (undone)' : title,
-      detail: '${p.basename(a.sourcePath)} → ${_display(a.targetPath)}',
-      when: _when(a.timestamp),
-      tone: quarantine ? SuggestionTone.amber : SuggestionTone.cyan,
-      chip: quarantine
-          ? 'Quarantine'
-          : renamed
-              ? 'Rename'
-              : 'Cleanup',
-    );
-  }
 
-  void _logEvent(String title, String detail, String chip,
-      {SuggestionTone tone = SuggestionTone.cyan}) {
-    final at = DateTime.now();
-    _sessionEvents.add((
-      at: at,
-      entry: HistoryEntry(
-        id: 'e${at.microsecondsSinceEpoch}',
-        title: title,
-        detail: detail,
-        when: _when(at),
-        tone: tone,
-        chip: chip,
-      ),
-    ));
-    unawaited(_publishLiveData());
-  }
 
-  /// Rebuilds the History and File Manager data from the engine's journal
-  /// and file index (with OCR-based sensitive flags).
+  /// Rebuilds the File Manager data from the engine's file index (with
+  /// OCR-based sensitive flags and pending-suggestion markers).
   Future<void> _publishLiveData() async {
     final engine = _engine;
     if (engine == null || _disposed) return;
-
-    final actions = await engine.history();
-    final timeline = <({DateTime at, HistoryEntry entry})>[
-      for (final a in actions)
-        if (a.type != core.ActionType.createFolder) (at: a.timestamp, entry: _historyFor(a)),
-      ..._sessionEvents,
-    ]..sort((x, y) => y.at.compareTo(x.at));
-    SortioData.liveHistory = [for (final t in timeline) t.entry];
 
     final pendingSources = {
       for (final s in _engineById.entries)
@@ -430,15 +417,6 @@ class SortioController extends ChangeNotifier {
   bool get allResolved => !scanning && suggestions.values.every((s) => !s.isPending);
   int get appliedCount => suggestions.values.where((s) => s.state == SuggestionState.applied).length;
   String get doneLine => SortioData.doneLine(appliedCount, suggestions.length);
-
-  String get modelLine => settingUpModel
-      ? SortioData.setupModelLine
-      : aiBusy
-      ? SortioData.workingModelLine
-      : offline
-          ? SortioData.offlineModelLine
-          : SortioData.onlineModelLine;
-  String get footLine => offline ? SortioData.offlineFootLine : SortioData.onlineFootLine;
 
   ({String label, String hint, String mode, int threshold}) get strictOutput =>
       SortioData.strictness(strictness);
@@ -547,15 +525,39 @@ class SortioController extends ChangeNotifier {
     caseSensitive: false,
   );
 
+  /// The chat list title for a new conversation: its first message.
+  static String _titleFor(String text) {
+    final t = text.replaceAll('\n', ' ').trim();
+    return t.length > 48 ? '${t.substring(0, 48)}…' : t;
+  }
+
   Future<void> sendMessage() async {
     final text = composerText.trim();
     if (text.isEmpty) {
       _toast(SortioData.emptyMessageHint);
       return;
     }
-    extraMessages.add(ChatMessage(id: 'u${DateTime.now().microsecondsSinceEpoch}', isUser: true, text: text));
+
+    var session = activeSession;
+    if (session == null) {
+      // First message of a brand-new chat: create its session and put it at
+      // the top of the history.
+      session = ChatSession(
+        id: 'chat${DateTime.now().microsecondsSinceEpoch}',
+        title: _titleFor(text),
+        updatedAt: DateTime.now(),
+      );
+      chatSessions.insert(0, session);
+      activeSession = session;
+    }
+
+    final sentAt = DateTime.now();
+    session
+      ..updatedAt = sentAt
+      ..messages.add(ChatMessage(id: 'u${sentAt.microsecondsSinceEpoch}', isUser: true, text: text));
     composerText = '';
     typing = true;
+    typingSessionId = session.id;
     _notify();
 
     final engine = _engine;
@@ -566,17 +568,11 @@ class SortioController extends ChangeNotifier {
     } else if (visibleFolderNames.isEmpty) {
       reply = SortioData.agentReply(visibleFolderNames);
     } else if (_tidyIntent.hasMatch(text)) {
+      _cardsSessionId = session.id; // this chat's scan owns the cards now
       await _rescan();
       reply = SortioData.scanReply(suggestions.length, visibleFolderNames);
     } else {
-      final sw = Stopwatch()..start();
       final hits = await engine.search(text);
-      _logEvent(
-        'Found "$text"',
-        'Plain-language search · ${hits.length} result${hits.length == 1 ? '' : 's'} '
-            'in ${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)}s, on-device',
-        'Search',
-      );
       reply = SortioData.searchReply(text, [
         for (final h in hits)
           (name: h.name, where: _display(p.dirname(h.path)), why: h.matchReason ?? ''),
@@ -584,12 +580,36 @@ class SortioController extends ChangeNotifier {
     }
     if (_disposed) return;
 
+    final at = DateTime.now();
+    session
+      ..updatedAt = at
+      ..messages.add(ChatMessage(
+        id: 'a${at.microsecondsSinceEpoch}',
+        isUser: false,
+        text: reply,
+      ));
     typing = false;
-    extraMessages.add(ChatMessage(
-      id: 'a${DateTime.now().microsecondsSinceEpoch}',
-      isUser: false,
-      text: reply,
-    ));
+    typingSessionId = null;
+    _notify();
+  }
+
+  /// Opens a conversation from the History (chats) list.
+  void openSession(String id) {
+    for (final s in chatSessions) {
+      if (s.id == id) {
+        activeSession = s;
+        _notify();
+        return;
+      }
+    }
+  }
+
+  /// Starts a fresh chat: the feed shows a welcome state and the first
+  /// message creates a new session in the history.
+  void startNewChat() {
+    activeSession = null;
+    typing = false;
+    typingSessionId = null;
     _notify();
   }
 
@@ -632,10 +652,6 @@ class SortioController extends ChangeNotifier {
       rules = '';
       _engine?.wipeMemory();
       _batchById.clear();
-      _sessionEvents.clear();
-      _logEvent('Wiped AI memory & logs',
-          'Cached OCR text, AI names and action logs cleared', 'Danger Zone',
-          tone: SuggestionTone.amber);
       unawaited(_refreshSavings());
       _toast('AI memory & logs wiped from this device.');
     }
@@ -690,7 +706,6 @@ class SortioController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    SortioData.liveHistory = null;
     SortioData.liveFiles = null;
     _toastTimer?.cancel();
     _armTimer?.cancel();

@@ -14,7 +14,6 @@ import '../backend/motion.dart';
 import 'chat_composer.dart';
 import 'chat_feed.dart';
 import 'chat_header.dart';
-import 'status_bar.dart';
 import 'toast.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -66,7 +65,6 @@ class _ChatScreenState extends State<ChatScreen> {
             SafeArea(
               child: Column(
                 children: [
-                  SortioStatusBar(offline: _controller.offline),
                   SortioHeaderBar(controller: _controller),
                   Expanded(child: SortioChatFeed(controller: _controller)),
                   SortioComposerBar(

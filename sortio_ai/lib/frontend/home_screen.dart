@@ -2,7 +2,7 @@
 // Sortio AI — frontend/home_screen.dart
 //
 // Screen: Home — greeting, savings stats, quick actions that jump into the
-// chat (or Settings), and a preview of recent on-device activity.
+// chat (or Settings), and a preview of recent chats.
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -30,7 +30,7 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = controller.savings;
-    final history = SortioData.history().take(3).toList();
+    final chats = SortioData.chatSessions().take(3).toList();
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -41,14 +41,14 @@ class HomeScreen extends StatelessWidget {
             // -- Header ---------------------------------------------------
             Row(
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: SortioColors.accent,
-                    borderRadius: BorderRadius.circular(11),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: Image.asset(
+                    'assets/images/sortio_logo.png',
+                    width: 42,
+                    height: 42,
+                    fit: BoxFit.cover,
                   ),
-                  child: const Icon(Icons.sort, size: 22, color: SortioColors.onAccent),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -70,11 +70,6 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                ),
-                SortioIconButton(
-                  icon: Icons.settings_outlined,
-                  tooltip: 'Open settings',
-                  onPressed: navigation.openSettings,
                 ),
               ],
             ),
@@ -151,16 +146,16 @@ class HomeScreen extends StatelessWidget {
 
             const SizedBox(height: 22),
 
-            // -- Recent activity -------------------------------------------
+            // -- Recent chats ------------------------------------------------
             Row(
               children: [
-                const Expanded(child: SortioSectionLabel('Recent activity')),
+                const Expanded(child: SortioSectionLabel('Recent chats')),
                 _SeeAllButton(onTap: navigation.openHistory),
               ],
             ),
             const SizedBox(height: 10),
-            for (final entry in history) ...[
-              _HistoryPreviewRow(entry: entry),
+            for (final chat in chats) ...[
+              _ChatPreviewRow(session: chat),
               const SizedBox(height: 8),
             ],
           ],
@@ -241,14 +236,13 @@ class _SeeAllButton extends StatelessWidget {
   }
 }
 
-class _HistoryPreviewRow extends StatelessWidget {
-  const _HistoryPreviewRow({required this.entry});
+class _ChatPreviewRow extends StatelessWidget {
+  const _ChatPreviewRow({required this.session});
 
-  final HistoryEntry entry;
+  final ChatSession session;
 
   @override
   Widget build(BuildContext context) {
-    final toneColor = entry.tone == SuggestionTone.amber ? SortioColors.amber : SortioColors.accentBright;
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -266,7 +260,7 @@ class _HistoryPreviewRow extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: SortioColors.borderTile),
             ),
-            child: Icon(Icons.check_circle_outline, size: 17, color: toneColor),
+            child: const Icon(Icons.chat_bubble_outline, size: 17, color: SortioColors.accentBright),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -274,30 +268,17 @@ class _HistoryPreviewRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  entry.title,
+                  session.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: SortioColors.textBody),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  entry.when,
+                  session.when,
                   style: const TextStyle(fontSize: 11, color: SortioColors.textMuted),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: toneColor.withValues(alpha: 0.4)),
-              color: toneColor.withValues(alpha: 0.1),
-            ),
-            child: Text(
-              entry.chip,
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: toneColor),
             ),
           ),
         ],

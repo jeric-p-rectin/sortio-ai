@@ -9,7 +9,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
 
     expect(find.text('Sortio AI'), findsOneWidget);
-    expect(find.text('Today · on-device session'), findsOneWidget);
+    expect(find.text('How can I help you sort your files?'), findsNothing);
     expect(
       find.text('Ask Sortio to find or tidy files…'),
       findsOneWidget,
@@ -36,12 +36,22 @@ void main() {
     await tester.tap(find.byIcon(Icons.home_outlined));
     await tester.pumpAndSettle(const Duration(milliseconds: 600));
     expect(find.text('Tidy Downloads'), findsOneWidget);
-    expect(find.text('RECENT ACTIVITY'), findsOneWidget);
+    expect(find.text('RECENT CHATS'), findsOneWidget);
 
-    // History tab
+    // History tab — the chat history
     await tester.tap(find.byIcon(Icons.history));
     await tester.pumpAndSettle(const Duration(milliseconds: 600));
-    expect(find.text('Every action, logged on this device only.'), findsOneWidget);
+    expect(find.text('Your conversations with Sortio.'), findsOneWidget);
+    expect(find.text('Meralco bill & downloads'), findsOneWidget);
+
+    // Opening a chat reopens that conversation in the chat screen
+    await tester.tap(find.text('March receipts for taxes'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 600));
+    expect(find.textContaining('Found 4 receipts'), findsOneWidget);
+    expect(
+      find.text('Ask Sortio to find or tidy files…'),
+      findsOneWidget,
+    );
 
     // Files tab
     await tester.tap(find.byIcon(Icons.folder_outlined));

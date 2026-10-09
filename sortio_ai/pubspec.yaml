@@ -52,6 +52,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.13.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -59,6 +60,14 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/sortio_logo.png"
+  min_sdk_android: 24
+  adaptive_icon_background: "#0B0F19"
+  adaptive_icon_foreground: "assets/images/sortio_logo.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -70,6 +79,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Bundled assets — logo image used in the header, home screen, chat
+  # bubbles and as the Android launcher icon. No network needed at runtime.
+  assets:
+    - assets/images/
 
   # Fonts bundled from the prototype (Sora for UI, JetBrains Mono for
   # paths/IDs). No network needed at runtime.
