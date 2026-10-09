@@ -1,4 +1,4 @@
-﻿# Sortio AI
+# Sortio AI
 
 **A private, on-device file assistant for Android.**  
 Sortio AI scans your folders, proposes tidy-ups, and waits for your approval before changing a single file. All processing runs locally — no cloud, no uploads, no account required.
