@@ -47,7 +47,31 @@ abstract final class SortioData {
   /// The chat history shown in the History (chats) screen, newest first. The
   /// scripted demo conversation is seeded first; every chat the user starts is
   /// inserted at the top of this list by the controller.
-  static List<ChatSession> chatSessions() {
+  /// Live chats published by the controller once the on-device engine runs
+  /// (persisted in SQLite); null means "use the demo chats".
+  static List<ChatSession>? liveChats;
+
+  static List<ChatSession> chatSessions() => liveChats ?? demoChatSessions();
+
+  /// First-launch chat: Sortio introduces itself and reports its first scan.
+  static const String welcomeTitle = 'Your first tidy-up';
+  static const String welcomeLine =
+      'Hi! I am Sortio. I only look at the folders you allow, everything stays '
+      'on this phone, and nothing moves until you approve.';
+
+  /// Marks a suggestion the AI is not sure enough about for the strictness
+  /// setting: it stays a question for the user instead of a recommendation.
+  static String lowConfidenceReason(int percent, int threshold) =>
+      'Only $percent% sure (your setting asks for $threshold%). Check it before approving.';
+
+  /// Prefix the engine uses for suggestions made by a house rule.
+  static const String houseRulePrefix = 'Your rule:';
+
+  static String rulesApplied(int count) => count == 0
+      ? 'No house rules recognised yet. Try "Always file Zoom receipts under Finance".'
+      : '$count house rule${count == 1 ? '' : 's'} active. Re-checking your folders.';
+
+  static List<ChatSession> demoChatSessions() {
     final now = DateTime.now();
     return [
       ChatSession(

@@ -43,7 +43,7 @@ class SortioController extends ChangeNotifier {
   void _seedChats() {
     chatSessions
       ..clear()
-      ..addAll(SortioData.chatSessions());
+      ..addAll(SortioData.demoChatSessions());
     activeSession = chatSessions.isEmpty ? null : chatSessions.first;
   }
 
@@ -129,6 +129,8 @@ class SortioController extends ChangeNotifier {
       }
       if (_disposed) return;
       _engine = core.LocalSortioCore(dataDir: dataDir);
+      _loadChats();
+      _loadRules();
       _ocr = OcrService(tempDir: (await getTemporaryDirectory()).path);
       _modelReady = _prepareModel(dataDir);
       _offlineSub = _engine!.isOffline.listen(_onRealOffline);
@@ -195,6 +197,9 @@ class SortioController extends ChangeNotifier {
     final renamed = s.fileName != s.targetName;
     final insights = _insightsById[s.id];
     final hasExtract = insights?.amountValue != null;
+    final percent = (s.confidence * 100).round();
+    final threshold = strictOutput.threshold;
+    final unsure = !quarantine && percent < threshold;
     return Suggestion(
       id: s.id,
       kind: quarantine
@@ -202,12 +207,106 @@ class SortioController extends ChangeNotifier {
           : [if (renamed) 'Rename', 'Move', if (hasExtract) 'Extract'].join(' · '),
       fromPath: _display(s.sourcePath),
       toPath: _display(s.targetPath),
-      tone: quarantine ? SuggestionTone.amber : SuggestionTone.cyan,
+      tone: quarantine || unsure ? SuggestionTone.amber : SuggestionTone.cyan,
       badge: insights?.sensitiveBadge,
       extractLabel: hasExtract ? insights!.amountLabel : null,
       extractValue: hasExtract ? insights!.amountValue : null,
-      reason: quarantine ? s.reason : null,
+      reason: quarantine || s.reason.startsWith(SortioData.houseRulePrefix)
+          ? s.reason
+          : unsure
+              ? SortioData.lowConfidenceReason(percent, threshold)
+              : null,
     );
+  }
+
+  /// Rebuild pending cards (e.g. after the strictness setting changed).
+  void _refreshCards() {
+    for (final s in _engineById.values.toList()) {
+      _replaceCard(s);
+    }
+  }
+
+  // --- Persistent chats -------------------------------------------------------
+
+  /// Restores saved chats; on first launch creates the welcome chat that
+  /// reports the first scan (its cards live there).
+  void _loadChats() {
+    final engine = _engine;
+    if (engine == null) return;
+    chatSessions
+      ..clear()
+      ..addAll([
+        for (final c in engine.db.chats())
+          ChatSession(
+            id: c.id,
+            title: c.title,
+            updatedAt: c.updatedAt,
+            messages: [
+              for (final m in c.messages) ChatMessage(id: m.id, isUser: m.isUser, text: m.text),
+            ],
+          ),
+      ]);
+    if (!chatSessions.any((c) => c.id == SortioData.scriptedChatId)) {
+      final welcome = ChatSession(
+        id: SortioData.scriptedChatId,
+        title: SortioData.welcomeTitle,
+        updatedAt: DateTime.now(),
+        messages: const [
+          ChatMessage(id: 'w1', isUser: false, text: SortioData.welcomeLine),
+          ChatMessage(id: 'w2', isUser: false, text: SortioData.scanningLine),
+        ],
+      );
+      chatSessions.insert(0, welcome);
+      for (final m in welcome.messages) {
+        _persistMessage(welcome, m);
+      }
+    }
+    _cardsSessionId = SortioData.scriptedChatId;
+    activeSession = chatSessions.firstWhere(
+      (c) => c.id == SortioData.scriptedChatId,
+      orElse: () => chatSessions.first,
+    );
+    SortioData.liveChats = chatSessions; // same list: Home sees new chats too
+    _notify();
+  }
+
+  /// Saves the chat row and one of its messages (insert or update).
+  void _persistMessage(ChatSession chat, ChatMessage m) {
+    final db = _engine?.db;
+    if (db == null) return;
+    db.saveChat(chat.id, chat.title, chat.updatedAt);
+    db.saveMessage(
+      chat.id,
+      core.StoredMessage(id: m.id, isUser: m.isUser, text: m.text, at: DateTime.now()),
+    );
+  }
+
+  // --- House rules -----------------------------------------------------------
+
+  static const _rulesKey = 'house_rules';
+  Timer? _rulesTimer;
+
+  void _loadRules() {
+    final engine = _engine;
+    if (engine == null) return;
+    rules = engine.db.setting(_rulesKey) ?? '';
+    engine.houseRules = core.HouseRules.parse(rules);
+  }
+
+  /// Saves the rules and re-scans once the user stops typing.
+  void _applyRulesSoon() {
+    _rulesTimer?.cancel();
+    _rulesTimer = Timer(const Duration(milliseconds: 1200), () {
+      final engine = _engine;
+      if (engine == null || _disposed) return;
+      engine.db.saveSetting(_rulesKey, rules);
+      final parsed = core.HouseRules.parse(rules);
+      final before = engine.houseRules.rules.map((r) => r.source).join('|');
+      engine.houseRules = parsed;
+      if (parsed.rules.map((r) => r.source).join('|') == before) return;
+      _toast(SortioData.rulesApplied(parsed.rules.length));
+      unawaited(_rescan());
+    });
   }
 
   /// Swap a pending card for an updated one, keeping its place in the feed.
@@ -310,6 +409,7 @@ class SortioController extends ChangeNotifier {
         isUser: false,
         text: SortioData.scanReply(suggestions.length, visibleFolderNames),
       );
+      _persistMessage(chat, chat.messages[1]);
       return;
     }
   }
@@ -552,9 +652,12 @@ class SortioController extends ChangeNotifier {
     }
 
     final sentAt = DateTime.now();
+    final userMessage =
+        ChatMessage(id: 'u${sentAt.microsecondsSinceEpoch}', isUser: true, text: text);
     session
       ..updatedAt = sentAt
-      ..messages.add(ChatMessage(id: 'u${sentAt.microsecondsSinceEpoch}', isUser: true, text: text));
+      ..messages.add(userMessage);
+    _persistMessage(session, userMessage);
     composerText = '';
     typing = true;
     typingSessionId = session.id;
@@ -581,13 +684,15 @@ class SortioController extends ChangeNotifier {
     if (_disposed) return;
 
     final at = DateTime.now();
+    final agentMessage = ChatMessage(
+      id: 'a${at.microsecondsSinceEpoch}',
+      isUser: false,
+      text: reply,
+    );
     session
       ..updatedAt = at
-      ..messages.add(ChatMessage(
-        id: 'a${at.microsecondsSinceEpoch}',
-        isUser: false,
-        text: reply,
-      ));
+      ..messages.add(agentMessage);
+    _persistMessage(session, agentMessage);
     typing = false;
     typingSessionId = null;
     _notify();
@@ -628,11 +733,13 @@ class SortioController extends ChangeNotifier {
 
   void setStrictness(double value) {
     strictness = value;
+    _refreshCards();
     _notify();
   }
 
   void setRules(String value) {
     rules = value;
+    _applyRulesSoon();
     _notify();
   }
 
@@ -651,7 +758,14 @@ class SortioController extends ChangeNotifier {
       armed = false;
       rules = '';
       _engine?.wipeMemory();
+      _engine?.db.saveSetting(_rulesKey, '');
+      _engine?.houseRules = core.HouseRules.empty;
       _batchById.clear();
+      if (_engine != null) {
+        chatSessions.clear();
+        activeSession = null;
+        _cardsSessionId = SortioData.scriptedChatId;
+      }
       unawaited(_refreshSavings());
       _toast('AI memory & logs wiped from this device.');
     }
@@ -707,6 +821,8 @@ class SortioController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     SortioData.liveFiles = null;
+    SortioData.liveChats = null;
+    _rulesTimer?.cancel();
     _toastTimer?.cancel();
     _armTimer?.cancel();
     _copyTimer?.cancel();

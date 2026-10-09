@@ -13,9 +13,10 @@ export 'models/results.dart';
 export 'models/suggestion.dart';
 
 // Storage
-export 'db/sortio_db.dart' show SortioDb, IndexedFile;
+export 'db/sortio_db.dart' show SortioDb, IndexedFile, StoredChat, StoredMessage;
 
 // Rules, safety, search
+export 'rules/house_rules.dart';
 export 'rules/rules_engine.dart';
 export 'safety/validator.dart';
 export 'search/search_query.dart';

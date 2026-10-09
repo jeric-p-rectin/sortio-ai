@@ -13,6 +13,7 @@ import '../models/suggestion.dart';
 import '../naming/date_extractor.dart';
 import '../naming/rename_service.dart';
 import '../privacy/network_status.dart';
+import '../rules/house_rules.dart';
 import '../rules/rules_engine.dart';
 import '../safety/validator.dart';
 import '../search/search_query.dart';
@@ -30,6 +31,10 @@ class LocalSortioCore implements SortioCore {
   final RulesEngine _rules;
   Validator _validator;
   bool _indexedThisSession = false;
+
+  /// The user's plain-words rules (Settings → House rules). They win over
+  /// the built-in category rules.
+  HouseRules houseRules = HouseRules.empty;
 
   /// [dataDir] is app-private storage for the database, e.g. Flutter's
   /// `getApplicationSupportDirectory()`.
@@ -73,25 +78,32 @@ class LocalSortioCore implements SortioCore {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is! File) continue;
         final name = p.basename(entity.path);
+        if (RulesEngine.isIgnored(name)) continue;
         final match = _rules.classify(name);
-        if (match == null) continue;
+        final indexed = _db.file(entity.path);
+        final houseRule = houseRules.match(name, indexed?.ocrText);
+        if (match == null && houseRule == null) continue;
 
+        final needsRename = match?.needsRename ?? false;
+        final category = houseRule?.folder ?? match!.category;
         // Reuse a cached AI name so rescans are instant.
-        final aiName = match.needsRename ? _db.file(entity.path)?.aiName : null;
-        final target = uniqueTarget(
-            p.join(folder, match.category, aiName ?? name), claimed);
+        final aiName = needsRename ? indexed?.aiName : null;
+        final target =
+            uniqueTarget(p.join(folder, category, aiName ?? name), claimed);
         claimed.add(p.canonicalize(target));
         suggestions.add(Suggestion(
           id: newId(),
           type: ActionType.move,
           sourcePath: entity.path,
           targetPath: target,
-          reason: aiName != null
-              ? 'Named from its content → ${match.category}'
-              : match.reason,
-          confidence: match.confidence,
-          category: match.category,
-          needsRename: match.needsRename && aiName == null,
+          reason: houseRule != null
+              ? 'Your rule: "${houseRule.source}"'
+              : aiName != null
+                  ? 'Named from its content → $category'
+                  : match!.reason,
+          confidence: houseRule != null ? 1.0 : match!.confidence,
+          category: category,
+          needsRename: needsRename && aiName == null,
           aiNamed: aiName != null,
         ));
       }

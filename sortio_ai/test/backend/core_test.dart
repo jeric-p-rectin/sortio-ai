@@ -257,6 +257,44 @@ void main() {
       expect(exe.existsSync(), isFalse); // files untouched by wipe
     });
 
+    test('house rules win over category rules and read OCR text', () async {
+      await touch('Zoom_Receipt_March.pdf');
+      final scan = await touch('IMG_2043.pdf');
+      await touch('report.pdf');
+      final core = open(allowed: [downloads])
+        ..houseRules = HouseRules.parse('Always file Zoom receipts under Finance');
+      await core.refreshIndex();
+      core.saveOcrText(scan.path, 'ZOOM VIDEO COMMUNICATIONS official receipt');
+
+      final s = {for (final x in await core.scan([downloads])) x.fileName: x};
+      expect(s['Zoom_Receipt_March.pdf']!.targetPath,
+          p.join(downloads, 'Finance', 'Zoom_Receipt_March.pdf'));
+      expect(s['Zoom_Receipt_March.pdf']!.reason, contains('Your rule'));
+      expect(s['IMG_2043.pdf']!.category, 'Finance'); // matched via OCR text
+      expect(s['IMG_2043.pdf']!.needsRename, isTrue); // still gets an AI name
+      expect(s['report.pdf']!.category, 'Documents');
+    });
+
+    test('chats and settings persist across restarts; wipe clears chats', () async {
+      final first = open();
+      final at = DateTime(2026, 10, 10, 4, 0);
+      first.db.saveChat('c1', 'Tidy my downloads', at);
+      first.db.saveMessage('c1', StoredMessage(id: 'u1', isUser: true, text: 'tidy my downloads', at: at));
+      first.db.saveMessage('c1', StoredMessage(id: 'a1', isUser: false, text: 'Found 3 files', at: at));
+      first.db.saveMessage('c1', StoredMessage(id: 'a1', isUser: false, text: 'Found 4 files', at: at));
+      first.db.saveSetting('house_rules', 'Put payslips in Work');
+
+      final restarted = open();
+      final chats = restarted.db.chats();
+      expect(chats.single.title, 'Tidy my downloads');
+      expect(chats.single.messages.map((m) => m.text), ['tidy my downloads', 'Found 4 files']);
+      expect(restarted.db.setting('house_rules'), 'Put payslips in Work');
+
+      restarted.wipeMemory();
+      expect(restarted.db.chats(), isEmpty);
+      expect(restarted.db.setting('house_rules'), 'Put payslips in Work');
+    });
+
     test('refresh is incremental and keeps OCR cache for unchanged files',
         () async {
       final a = await touch('a.pdf');
