@@ -36,9 +36,9 @@ abstract final class SortioData {
         ),
       ];
 
-  static List<FolderAccess> folders({bool downloads = true, bool screenshots = true, bool documents = false}) => [
+  static List<FolderAccess> folders({bool downloads = true, bool photos = true, bool documents = false}) => [
         FolderAccess(key: 'downloads', label: 'Downloads', path: '~/Downloads', allowed: downloads),
-        FolderAccess(key: 'screenshots', label: 'Screenshots', path: '~/Pictures/Screenshots', allowed: screenshots),
+        FolderAccess(key: 'photos', label: 'Photos', path: '~/DCIM/Camera · ~/Pictures', allowed: photos),
         FolderAccess(key: 'documents', label: 'Documents', path: '~/Documents', allowed: documents),
       ];
 
@@ -47,7 +47,31 @@ abstract final class SortioData {
   /// The chat history shown in the History (chats) screen, newest first. The
   /// scripted demo conversation is seeded first; every chat the user starts is
   /// inserted at the top of this list by the controller.
-  static List<ChatSession> chatSessions() {
+  /// Live chats published by the controller once the on-device engine runs
+  /// (persisted in SQLite); null means "use the demo chats".
+  static List<ChatSession>? liveChats;
+
+  static List<ChatSession> chatSessions() => liveChats ?? demoChatSessions();
+
+  /// First-launch chat: Sortio introduces itself and reports its first scan.
+  static const String welcomeTitle = 'Your first tidy-up';
+  static const String welcomeLine =
+      'Hi! I am Sortio. I only look at the folders you allow, everything stays '
+      'on this phone, and nothing moves until you approve.';
+
+  /// Marks a suggestion the AI is not sure enough about for the strictness
+  /// setting: it stays a question for the user instead of a recommendation.
+  static String lowConfidenceReason(int percent, int threshold) =>
+      'Only $percent% sure (your setting asks for $threshold%). Check it before approving.';
+
+  /// Prefix the engine uses for suggestions made by a house rule.
+  static const String houseRulePrefix = 'Your rule:';
+
+  static String rulesApplied(int count) => count == 0
+      ? 'No house rules recognised yet. Try "Always file Zoom receipts under Finance".'
+      : '$count house rule${count == 1 ? '' : 's'} active. Re-checking your folders.';
+
+  static List<ChatSession> demoChatSessions() {
     final now = DateTime.now();
     return [
       ChatSession(
@@ -118,8 +142,15 @@ abstract final class SortioData {
     ];
   }
 
+  /// Live file list published by the controller once the on-device engine
+  /// runs; null means "use the demo data" (widget tests, web, no engine).
+  static List<FileItem>? liveFiles;
+
   /// Files shown in the File Manager screen, grouped by folder key.
-  static List<FileItem> files() => const [
+  static List<FileItem> files() => liveFiles ?? demoFiles();
+
+
+  static List<FileItem> demoFiles() => const [
         FileItem(
           folderKey: 'downloads',
           name: 'IMG_2043.pdf',
@@ -211,11 +242,16 @@ abstract final class SortioData {
 
   /// Shared storage root on Android and where each sandbox folder lives in it.
   static const String storageRoot = '/storage/emulated/0';
-  static const Map<String, String> folderDirs = {
-    'downloads': 'Download',
-    'screenshots': 'Pictures/Screenshots',
-    'documents': 'Documents',
+  static const Map<String, List<String>> folderDirs = {
+    'downloads': ['Download'],
+    // Camera roll, saved pictures and screenshots. Only photos of documents
+    // are ever suggested from here (see LocalSortioCore.photoRoots).
+    'photos': ['DCIM/Camera', 'Pictures', 'Pictures/Screenshots'],
+    'documents': ['Documents'],
   };
+
+  /// Folder keys whose files follow the photo policy.
+  static const Set<String> photoFolderKeys = {'photos'};
 
   /// Summary line shown once every suggestion has been resolved.
   static String doneLine(int appliedCount, [int total = 2]) {
@@ -240,7 +276,7 @@ abstract final class SortioData {
   /// Reply to a tidy request after a fresh scan.
   static String scanReply(int count, List<String> folderNames) => count == 0
       ? 'I checked ${joinNames(folderNames)}. Everything is already tidy.'
-      : 'I checked ${joinNames(folderNames)} and have $count suggestion${count == 1 ? '' : 's'} for you above. Nothing moves until you approve.';
+      : 'I checked ${joinNames(folderNames)} and found $count file${count == 1 ? '' : 's'} to tidy. Nothing moves until you approve:';
 
   /// Reply to a search request.
   static String searchReply(String query, List<({String name, String where, String why})> hits) {

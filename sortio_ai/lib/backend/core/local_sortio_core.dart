@@ -10,8 +10,10 @@ import '../models/action_record.dart';
 import '../models/ids.dart';
 import '../models/results.dart';
 import '../models/suggestion.dart';
+import '../naming/date_extractor.dart';
 import '../naming/rename_service.dart';
 import '../privacy/network_status.dart';
+import '../rules/house_rules.dart';
 import '../rules/rules_engine.dart';
 import '../safety/validator.dart';
 import '../search/search_query.dart';
@@ -29,6 +31,19 @@ class LocalSortioCore implements SortioCore {
   final RulesEngine _rules;
   Validator _validator;
   bool _indexedThisSession = false;
+
+  /// The user's plain-words rules (Settings → House rules). They win over
+  /// the built-in category rules.
+  HouseRules houseRules = HouseRules.empty;
+
+  /// Camera / picture folders. Ordinary photos there are never touched:
+  /// only recent images that turn out to be documents (by OCR) are suggested.
+  Set<String> photoRoots = const {};
+
+  /// How far back to look in [photoRoots].
+  Duration photoWindow = const Duration(days: 30);
+
+  static const photoCategory = 'Scans';
 
   /// [dataDir] is app-private storage for the database, e.g. Flutter's
   /// `getApplicationSupportDirectory()`.
@@ -72,25 +87,39 @@ class LocalSortioCore implements SortioCore {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is! File) continue;
         final name = p.basename(entity.path);
-        final match = _rules.classify(name);
-        if (match == null) continue;
+        if (RulesEngine.isIgnored(name)) continue;
+        final indexed = _db.file(entity.path);
 
+        if (photoRoots.contains(folder)) {
+          final photo = _photoSuggestion(entity, folder, indexed, claimed);
+          if (photo != null) suggestions.add(photo);
+          continue;
+        }
+
+        final match = _rules.classify(name);
+        final houseRule = houseRules.match(name, indexed?.ocrText);
+        if (match == null && houseRule == null) continue;
+
+        final needsRename = match?.needsRename ?? false;
+        final category = houseRule?.folder ?? match!.category;
         // Reuse a cached AI name so rescans are instant.
-        final aiName = match.needsRename ? _db.file(entity.path)?.aiName : null;
-        final target = uniqueTarget(
-            p.join(folder, match.category, aiName ?? name), claimed);
+        final aiName = needsRename ? indexed?.aiName : null;
+        final target =
+            uniqueTarget(p.join(folder, category, aiName ?? name), claimed);
         claimed.add(p.canonicalize(target));
         suggestions.add(Suggestion(
           id: newId(),
           type: ActionType.move,
           sourcePath: entity.path,
           targetPath: target,
-          reason: aiName != null
-              ? 'Named from its content → ${match.category}'
-              : match.reason,
-          confidence: match.confidence,
-          category: match.category,
-          needsRename: match.needsRename && aiName == null,
+          reason: houseRule != null
+              ? 'Your rule: "${houseRule.source}"'
+              : aiName != null
+                  ? 'Named from its content → $category'
+                  : match!.reason,
+          confidence: houseRule != null ? 1.0 : match!.confidence,
+          category: category,
+          needsRename: needsRename && aiName == null,
           aiNamed: aiName != null,
         ));
       }
@@ -174,6 +203,40 @@ class LocalSortioCore implements SortioCore {
     }
   }
 
+  /// Photo-folder policy: images from the last [photoWindow] that are (or
+  /// may be) documents go to `Scans`; everything else is left alone.
+  Suggestion? _photoSuggestion(
+      File file, String root, IndexedFile? indexed, Set<String> claimed) {
+    final name = p.basename(file.path);
+    if (!RulesEngine.isImage(name)) return null;
+    final modified = indexed?.modified ?? file.statSync().modified;
+    if (DateTime.now().difference(modified) > photoWindow) return null;
+
+    final text = indexed?.ocrText;
+    final known = text != null;
+    if (known && !RulesEngine.looksLikeDocument(text)) return null;
+
+    final rule = houseRules.match(name, text);
+    final category = rule?.folder ?? photoCategory;
+    final aiName = known ? indexed?.aiName : null;
+    final target = uniqueTarget(p.join(root, category, aiName ?? name), claimed);
+    claimed.add(p.canonicalize(target));
+    return Suggestion(
+      id: newId(),
+      type: ActionType.move,
+      sourcePath: file.path,
+      targetPath: target,
+      reason: rule != null
+          ? 'Your rule: "${rule.source}"'
+          : 'Photo of a document → $category',
+      confidence: rule != null ? 1.0 : 0.8,
+      category: category,
+      needsRename: aiName == null,
+      aiNamed: aiName != null,
+      needsDocumentCheck: !known,
+    );
+  }
+
   @override
   Future<ApplyResult> apply(List<Suggestion> approved) async {
     final batchId = newId();
@@ -192,10 +255,17 @@ class LocalSortioCore implements SortioCore {
           await Directory(s.targetPath).create();
           applied.add(_log(batchId, s.type, s.targetPath, s.targetPath));
         } else {
-          final parent = p.dirname(s.targetPath);
-          if (!await Directory(parent).exists()) {
-            await Directory(parent).create(recursive: true);
-            applied.add(_log(batchId, ActionType.createFolder, parent, parent));
+          // Create (and log) every missing folder level, outermost first, so
+          // undo removes them innermost first once they are empty.
+          final missing = <String>[];
+          for (var dir = p.dirname(s.targetPath);
+              !await Directory(dir).exists() && _validator.isAllowed(dir);
+              dir = p.dirname(dir)) {
+            missing.insert(0, dir);
+          }
+          for (final dir in missing) {
+            await Directory(dir).create();
+            applied.add(_log(batchId, ActionType.createFolder, dir, dir));
           }
           await moveFile(s.sourcePath, s.targetPath);
           _db.movePath(s.sourcePath, s.targetPath);
@@ -347,7 +417,8 @@ class LocalSortioCore implements SortioCore {
     final results = <FileResult>[];
     for (final f in candidates) {
       if (!_validator.isAllowed(f.path)) continue;
-      final dateReasons = query.matchDate(f.name, f.modified);
+      final dateReasons = query.matchDate(f.name, f.modified,
+          documentDate: _documentDate(query, f));
       if (dateReasons == null) continue;
       results.add(FileResult(
         path: f.path,
@@ -361,6 +432,18 @@ class LocalSortioCore implements SortioCore {
       if (results.length >= limit) break;
     }
     return results;
+  }
+
+  static final _dates = DateExtractor();
+
+  /// The date printed inside a scanned document (from its OCR text), only
+  /// computed when the query filters by month or year.
+  static DateTime? _documentDate(SearchQuery query, IndexedFile f) {
+    if (query.month == null && query.year == null) return null;
+    final text = f.ocrText;
+    if (text == null || text.isEmpty) return null;
+    final d = _dates.extract(text);
+    return d == null ? null : DateTime(d.year, d.month, d.day ?? 1);
   }
 
   static String _keywordReason(List<String> keywords, IndexedFile f) {

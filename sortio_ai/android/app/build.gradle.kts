@@ -19,6 +19,12 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    // The on-device model ships inside the APK uncompressed, so it can be
+    // streamed out to app storage on first launch (see MainActivity).
+    androidResources {
+        noCompress += "gguf"
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.sortio_ai"

@@ -54,6 +54,9 @@ void main() {
       expect(c.clean('MANILA ELECTRIC COMPANY (MERALCO)'), 'Meralco');
       expect(c.clean('MERALCO'), 'Meralco');
       expect(c.clean('Acme Solutions Inc.'), 'Acme-Solutions');
+      expect(c.clean('ACME SOLUTIONS INC.'), 'Acme-Solutions');
+      expect(c.clean('MERCURY DRUG CORPORATION'), 'Mercury-Drug');
+      expect(c.clean('BDO'), 'BDO');
       expect(c.clean('7-Eleven Store #4521'), '7-Eleven');
       expect(c.clean('PLDT'), 'PLDT');
       expect(c.clean('GCash'), 'GCash');
@@ -96,11 +99,25 @@ void main() {
       final llm = FakeLlm({'issuer': 'MANILA ELECTRIC COMPANY (MERALCO)', 'doc_type': 'Bill'});
       final r = (await RenameService(llm)
           .propose(fileName: 'IMG_2043.pdf', ocrText: meralco))!;
-      expect(r.newName, '2026-03_Meralco_Bill.pdf');
-      expect(r.reason, 'Meralco bill from March 2026');
+      expect(r.newName, '2026-03_Meralco_Statement.pdf');
+      expect(r.reason, 'Meralco statement from March 2026');
       expect(r.confidence, greaterThan(0.9));
       // Only the short excerpt goes to the model.
       expect(llm.lastUser, isNotNull);
+    });
+
+    test('prefers the brand printed in parentheses after the legal name', () async {
+      final llm = FakeLlm({'issuer': 'MANILA ELECTRIC COMPANY', 'doc_type': 'Statement'});
+      final r = (await RenameService(llm)
+          .propose(fileName: 'IMG_2043.pdf', ocrText: meralco))!;
+      expect(r.newName, '2026-03_Meralco_Statement.pdf');
+    });
+
+    test('a printed heading decides the type over the model', () async {
+      final llm = FakeLlm({'issuer': '7-Eleven', 'doc_type': 'Bill'});
+      final r = (await RenameService(llm)
+          .propose(fileName: 'IMG_1.jpg', ocrText: sevenEleven))!;
+      expect(r.newName, '2026-02_7-Eleven_Receipt.jpg');
     });
 
     test('falls back to the file date and to "Document"', () async {
@@ -129,6 +146,39 @@ void main() {
       await RenameService(llm, maxChars: 100)
           .propose(fileName: 'a.pdf', ocrText: meralco * 20);
       expect(llm.lastUser!.length, 100);
+    });
+  });
+
+  group('ContentInsights', () {
+    test('extracts the amount to pay and flags sensitive data', () {
+      final bill = ContentInsights.fromText(meralco);
+      expect(bill.amountLabel, 'Amount due:');
+      expect(bill.amountValue, '₱3,482.15');
+      expect(bill.sensitiveBadge, 'Contains Account Number');
+
+      final receipt = ContentInsights.fromText(sevenEleven);
+      expect(receipt.amountValue, '₱58.00');
+      expect(receipt.isSensitive, isFalse);
+
+      final pay = ContentInsights.fromText(payslip);
+      expect(pay.amountLabel, 'Net pay:');
+      expect(pay.amountValue, '₱13,543.70');
+      expect(pay.sensitiveBadge, 'Contains ID Number'); // SSS
+    });
+
+    test('nothing found', () {
+      final none = ContentInsights.fromText('Meeting notes for Monday');
+      expect(none.amountValue, isNull);
+      expect(none.sensitiveBadge, isNull);
+    });
+  });
+
+  group('jsonSchemaToGbnf', () {
+    test('builds a grammar with keys in order and enum alternatives', () {
+      final g = jsonSchemaToGbnf(classifySchema);
+      expect(g, contains(r'root ::= "{" ws "\"issuer\"" ws ":" ws v0 ws "," ws "\"doc_type\"" ws ":" ws v1 ws "}"'));
+      expect(g, contains('v0 ::= string'));
+      expect(g, contains(r'"\"Invoice\"" | "\"Bill\""'));
     });
   });
 

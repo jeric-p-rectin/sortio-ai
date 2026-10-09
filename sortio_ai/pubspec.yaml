@@ -44,6 +44,10 @@ dependencies:
   # needs AGP 9 (this project uses the Flutter-3.38 default AGP 8.11).
   # 12.0.3 is the newest release compatible with AGP 8.
   permission_handler: 12.0.3
+  # On-device AI: llama.cpp runtime, OCR, PDF page rendering.
+  llamadart: ^0.11.1
+  google_mlkit_text_recognition: ^0.17.1
+  pdfx: ^2.11.0
 
 dev_dependencies:
   flutter_test:
@@ -131,3 +135,15 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# On-device LLM runtime (llama.cpp via llamadart). The phone builds get the
+# small llama.cpp CPU bundle; the Windows host (only used for `flutter test`)
+# gets the lightweight LiteRT runtime instead of the ~2 GB CUDA bundle.
+hooks:
+  user_defines:
+    llamadart:
+      llamadart_native_runtimes:
+        platforms:
+          android-arm64: [llama_cpp]
+          android-x64: [llama_cpp]
+          windows-x64: [litert_lm]

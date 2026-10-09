@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# On-device model (~500 MB) lives outside git; see lib/backend/README.md
+/android/app/src/main/assets/
+*.gguf

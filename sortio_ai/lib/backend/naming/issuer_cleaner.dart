@@ -47,14 +47,17 @@ class IssuerCleaner {
     return out.replaceAll(RegExp(r'-{2,}'), '-');
   }
 
-  /// MERALCO → Meralco, but keep short acronyms (PLDT, BDO) and mixed case
-  /// (GCash, 7-Eleven).
+  /// MERALCO → Meralco, DRUG → Drug, but keep acronyms (BDO, SSS, PLDT) and
+  /// mixed case (GCash, 7-Eleven). An acronym is up to 3 letters, or a
+  /// 4-letter word without vowels.
   static String _caseWord(String w) {
     final letters = w.replaceAll(RegExp(r'[^A-Za-z]'), '');
     if (letters.isEmpty) return w;
     final allUpper = letters == letters.toUpperCase();
     final allLower = letters == letters.toLowerCase();
-    if (allUpper && letters.length <= 4) return w;
+    final acronym = letters.length <= 3 ||
+        (letters.length == 4 && !RegExp('[AEIOU]').hasMatch(letters));
+    if (allUpper && acronym) return w;
     if (allUpper || allLower) {
       return w[0].toUpperCase() + w.substring(1).toLowerCase();
     }

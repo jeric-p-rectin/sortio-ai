@@ -62,6 +62,35 @@ class RenameService {
     'August', 'September', 'October', 'November', 'December',
   ];
 
+  /// "MANILA ELECTRIC COMPANY" + text "…COMPANY (MERALCO)…" → "MERALCO":
+  /// documents often print the brand in parentheses after the legal name.
+  static String? _preferAcronym(String? issuer, String text) {
+    if (issuer == null || issuer.trim().length < 3) return issuer;
+    final words = issuer
+        .trim()
+        .split(RegExp(r'\s+'))
+        .map(RegExp.escape)
+        .join(r'[\s,.]+');
+    final m = RegExp('$words\\s*\\(([A-Za-z0-9&.\\- ]{2,15})\\)', caseSensitive: false)
+        .firstMatch(text);
+    return m == null ? issuer : m[1];
+  }
+
+  static final _headings = <(RegExp, String)>[
+    (RegExp(r'\bofficial\s+receipt\b|\bsales\s+invoice\b(?!.*due)', caseSensitive: false), 'Receipt'),
+    (RegExp(r'\bpay\s?slip\b|\bpay\s+stub\b', caseSensitive: false), 'Payslip'),
+    (RegExp(r'\bstatement\s+of\s+account\b', caseSensitive: false), 'Statement'),
+  ];
+
+  /// "OFFICIAL RECEIPT" / "PAYSLIP" / "STATEMENT OF ACCOUNT" in the text
+  /// decide the type outright.
+  static String? _typeFromHeading(String text) {
+    for (final (pattern, type) in _headings) {
+      if (pattern.hasMatch(text)) return type;
+    }
+    return null;
+  }
+
   /// Returns null when the text gives nothing useful to name the file by.
   /// Throws [LlmException] if the model fails.
   Future<RenameProposal?> propose({
@@ -84,9 +113,12 @@ class RenameService {
       user: excerpt,
       schema: classifySchema,
     );
-    final issuer = _issuers.clean(json['issuer'] as String?);
+    final issuer =
+        _issuers.clean(_preferAcronym(json['issuer'] as String?, text));
     final rawType = json['doc_type'] as String?;
-    final docType = docTypes.contains(rawType) ? rawType! : 'Other';
+    // A heading printed on the document beats the small model's guess.
+    final docType =
+        _typeFromHeading(text) ?? (docTypes.contains(rawType) ? rawType! : 'Other');
     if (issuer == null && docType == 'Other') return null;
 
     final newName = _names.build(

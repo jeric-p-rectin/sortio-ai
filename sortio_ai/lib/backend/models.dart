@@ -92,7 +92,7 @@ class ChatSession {
     required this.title,
     required this.updatedAt,
     List<ChatMessage>? messages,
-  }) : messages = messages ?? <ChatMessage>[];
+  }) : messages = <ChatMessage>[...?messages]; // own, growable copy (seeds are const)
 
   final String id;
   String title;

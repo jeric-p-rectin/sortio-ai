@@ -6,6 +6,35 @@ import 'package:sqlite3/sqlite3.dart';
 import '../models/action_record.dart';
 import '../models/suggestion.dart';
 
+/// A saved chat (History screen) and its messages.
+class StoredChat {
+  final String id;
+  final String title;
+  final DateTime updatedAt;
+  final List<StoredMessage> messages;
+
+  const StoredChat({
+    required this.id,
+    required this.title,
+    required this.updatedAt,
+    required this.messages,
+  });
+}
+
+class StoredMessage {
+  final String id;
+  final bool isUser;
+  final String text;
+  final DateTime at;
+
+  const StoredMessage({
+    required this.id,
+    required this.isUser,
+    required this.text,
+    required this.at,
+  });
+}
+
 /// A row of the file index.
 class IndexedFile {
   final int id;
@@ -43,7 +72,7 @@ class IndexedFile {
 /// Caching is the main efficiency win: OCR and the LLM run once per file
 /// version, and the cache follows the file when Sortio moves or renames it.
 class SortioDb {
-  static const _schemaVersion = 1;
+  static const _schemaVersion = 2;
   static const maxOcrChars = 4000;
 
   final Database _db;
@@ -69,7 +98,13 @@ class SortioDb {
     _db.execute('PRAGMA synchronous = NORMAL');
     final version = _db.select('PRAGMA user_version').first.columnAt(0) as int;
     if (version >= _schemaVersion) return;
+    if (version < 1) _migrateV1();
+    if (version < 2) _migrateV2();
+    _db.execute('PRAGMA user_version = $_schemaVersion');
+  }
 
+  /// v1: file index (+ FTS5) and the action journal.
+  void _migrateV1() {
     _db.execute('''
       CREATE TABLE IF NOT EXISTS files (
         id        INTEGER PRIMARY KEY,
@@ -114,7 +149,31 @@ class SortioDb {
       );
       CREATE INDEX IF NOT EXISTS actions_batch ON actions(batch_id);
     ''');
-    _db.execute('PRAGMA user_version = $_schemaVersion');
+  }
+
+  /// v2: saved chats (History screen) and small app settings (house rules).
+  void _migrateV2() {
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS chats (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        updated_at  INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+        id       TEXT NOT NULL,
+        chat_id  TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        is_user  INTEGER NOT NULL,
+        text     TEXT NOT NULL,
+        ts       INTEGER NOT NULL,
+        UNIQUE (chat_id, id)
+      );
+      CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages(chat_id, seq);
+      CREATE TABLE IF NOT EXISTS settings (
+        key    TEXT PRIMARY KEY,
+        value  TEXT NOT NULL
+      );
+    ''');
   }
 
   T transaction<T>(T Function() body) {
@@ -206,10 +265,12 @@ class SortioDb {
     _db.execute('UPDATE files SET ocr_text = ? WHERE path = ?', [trimmed, path]);
   }
 
-  /// "Wipe AI memory & logs": forget cached OCR text, AI names and the
-  /// action history. Files on disk are not touched.
+  /// "Wipe AI memory & logs": forget cached OCR text, AI names, chats and
+  /// the action history. Files on disk and settings are not touched.
   void wipe() => transaction(() {
         _db.execute('DELETE FROM actions');
+        _db.execute('DELETE FROM chat_messages');
+        _db.execute('DELETE FROM chats');
         _db.execute('UPDATE files SET ocr_text = NULL, ai_name = NULL');
       });
 
@@ -238,6 +299,63 @@ class SortioDb {
       .select('SELECT * FROM files ORDER BY mtime DESC LIMIT ?', [limit])
       .map(IndexedFile.fromRow)
       .toList();
+
+  // --- Chats -----------------------------------------------------------------
+
+  /// All chats, newest first, with their messages in order.
+  List<StoredChat> chats() {
+    final messages = <String, List<StoredMessage>>{};
+    for (final r in _db.select('SELECT * FROM chat_messages ORDER BY seq')) {
+      (messages[r['chat_id'] as String] ??= []).add(StoredMessage(
+        id: r['id'] as String,
+        isUser: (r['is_user'] as int) != 0,
+        text: r['text'] as String,
+        at: DateTime.fromMillisecondsSinceEpoch(r['ts'] as int),
+      ));
+    }
+    return [
+      for (final r in _db.select('SELECT * FROM chats ORDER BY updated_at DESC'))
+        StoredChat(
+          id: r['id'] as String,
+          title: r['title'] as String,
+          updatedAt: DateTime.fromMillisecondsSinceEpoch(r['updated_at'] as int),
+          messages: messages[r['id']] ?? const [],
+        ),
+    ];
+  }
+
+  void saveChat(String id, String title, DateTime updatedAt) => _db.execute(
+        'INSERT INTO chats (id, title, updated_at) VALUES (?, ?, ?) '
+        'ON CONFLICT(id) DO UPDATE SET title = excluded.title, '
+        'updated_at = excluded.updated_at',
+        [id, title, updatedAt.millisecondsSinceEpoch],
+      );
+
+  /// Inserts a message, or replaces its text if it already exists.
+  void saveMessage(String chatId, StoredMessage m) => _db.execute(
+        'INSERT INTO chat_messages (id, chat_id, is_user, text, ts) '
+        'VALUES (?, ?, ?, ?, ?) '
+        'ON CONFLICT(chat_id, id) DO UPDATE SET text = excluded.text',
+        [m.id, chatId, m.isUser ? 1 : 0, m.text, m.at.millisecondsSinceEpoch],
+      );
+
+  void deleteAllChats() => transaction(() {
+        _db.execute('DELETE FROM chat_messages');
+        _db.execute('DELETE FROM chats');
+      });
+
+  // --- Settings --------------------------------------------------------------
+
+  String? setting(String key) {
+    final rows = _db.select('SELECT value FROM settings WHERE key = ?', [key]);
+    return rows.isEmpty ? null : rows.first['value'] as String;
+  }
+
+  void saveSetting(String key, String value) => _db.execute(
+        'INSERT INTO settings (key, value) VALUES (?, ?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        [key, value],
+      );
 
   // --- Action journal --------------------------------------------------------
 

@@ -13,9 +13,10 @@ export 'models/results.dart';
 export 'models/suggestion.dart';
 
 // Storage
-export 'db/sortio_db.dart' show SortioDb, IndexedFile;
+export 'db/sortio_db.dart' show SortioDb, IndexedFile, StoredChat, StoredMessage;
 
 // Rules, safety, search
+export 'rules/house_rules.dart';
 export 'rules/rules_engine.dart';
 export 'safety/validator.dart';
 export 'search/search_query.dart';
@@ -24,6 +25,8 @@ export 'search/search_query.dart';
 export 'llm/llm_client.dart';
 export 'llm/ollama_client.dart';
 export 'llm/prompts.dart';
+export 'llm/json_grammar.dart';
+export 'naming/content_insights.dart';
 export 'naming/date_extractor.dart';
 export 'naming/issuer_cleaner.dart';
 export 'naming/name_builder.dart';
