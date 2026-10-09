@@ -21,6 +21,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'data_output.dart';
+import 'design_tokens.dart';
+import 'llm/llamadart_client.dart';
 import 'models.dart';
 import 'motion.dart';
 import 'platform/model_store.dart';
@@ -67,6 +69,19 @@ class SortioController extends ChangeNotifier {
   // --- Appearance ------------------------------------------------------------
   /// True while the dark palette is active (the app's original look).
   bool darkMode = true;
+
+  // --- AI strictness & house rules -------------------------------------------
+  /// How sure the AI must be before a suggestion counts as a recommendation:
+  /// 0.0 (lenient) to 1.0 (strict). Less-sure cards stay amber questions.
+  double strictness = 0.5;
+
+  /// The user's plain-language house rules ("Always file Zoom receipts under
+  /// Finance"), parsed by the engine.
+  String rules = '';
+
+  /// Minimum confidence, in percent, derived from [strictness] (50% to 90%).
+  ({int threshold}) get strictOutput =>
+      (threshold: (50 + strictness.clamp(0.0, 1.0) * 40).round());
 
   /// All chats, newest first — drives the History (chats) screen.
   final List<ChatSession> chatSessions = <ChatSession>[];
@@ -822,6 +837,12 @@ class SortioController extends ChangeNotifier {
     final index = chatSessions.indexWhere((s) => s.id == id);
     if (index == -1) return;
     chatSessions.removeAt(index);
+    // Also drop it from the saved history, or it would come back on restart.
+    try {
+      _engine?.db.deleteChat(id);
+    } on Object catch (e) {
+      debugPrint('Could not delete chat $id from the database: $e');
+    }
     if (activeSession?.id == id) activeSession = null;
     if (typingSessionId == id) {
       typing = false;
@@ -857,11 +878,24 @@ class SortioController extends ChangeNotifier {
 
   void setStrictness(double value) {
     strictness = value;
+    _refreshCards();
     _notify();
   }
 
   void setRules(String value) {
     rules = value;
+    _applyRulesSoon();
+    _notify();
+  }
+
+  // --- Appearance ------------------------------------------------------------
+
+  /// The Dark mode switch: swaps the palette and repaints the app.
+  void setDarkMode(bool value) => _applyTheme(dark: value);
+
+  void _applyTheme({required bool dark}) {
+    darkMode = dark;
+    SortioThemeBus.instance.setDark(dark);
     _notify();
   }
 

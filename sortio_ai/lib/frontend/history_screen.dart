@@ -5,6 +5,8 @@
 // row here; tapping one reopens it in the chat screen.
 // ============================================================================
 
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/material.dart';
 
 import '../backend/controller.dart';
@@ -76,19 +78,19 @@ class HistoryScreen extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                         itemCount: chats.length,
                         itemBuilder: (context, i) {
-                          return Padding(
-                            padding: EdgeInsets.only(bottom: i == chats.length - 1 ? 0 : 10),
-                            child: _SwipeToDelete(
-                              key: ValueKey(chats[i].id),
-                              onDelete: () => controller.deleteSession(chats[i].id),
-                              child: _ChatRow(
-                                session: chats[i],
-                                active: controller.activeSession?.id == chats[i].id,
-                                onTap: () {
-                                  controller.openSession(chats[i].id);
-                                  navigation.openChat();
-                                },
-                              ),
+                          return _SwipeToDelete(
+                            key: ValueKey(chats[i].id),
+                            // The gap lives inside the row so it collapses
+                            // together with the card when it is deleted.
+                            bottomGap: i == chats.length - 1 ? 0 : 10,
+                            onDelete: () => controller.deleteSession(chats[i].id),
+                            child: _ChatRow(
+                              session: chats[i],
+                              active: controller.activeSession?.id == chats[i].id,
+                              onTap: () {
+                                controller.openSession(chats[i].id);
+                                navigation.openChat();
+                              },
                             ),
                           );
                         },
@@ -134,37 +136,91 @@ class _NewChatButton extends StatelessWidget {
   }
 }
 
-/// Swipe a card left to reveal a trash button; tapping the button deletes it.
-/// Swiping back (or releasing short of the threshold) closes it again.
+enum _Exit { none, slide, fade }
+
+/// Swipe a card left to reveal a trash button.
+///
+/// * A short swipe opens the trash button. Tapping it fades the card out and
+///   then collapses its row.
+/// * A long swipe, all the way to the left, deletes the card without the
+///   button: it keeps sliding off to the left until it has vanished, then its
+///   row collapses.
+///
+/// Swiping back (or releasing short of the halfway point) closes it again.
 class _SwipeToDelete extends StatefulWidget {
-  const _SwipeToDelete({super.key, required this.child, required this.onDelete});
+  const _SwipeToDelete({
+    super.key,
+    required this.child,
+    required this.onDelete,
+    this.bottomGap = 0,
+  });
 
   final Widget child;
   final VoidCallback onDelete;
+
+  /// Space kept under the card. It lives in here so it collapses with the row.
+  final double bottomGap;
 
   @override
   State<_SwipeToDelete> createState() => _SwipeToDeleteState();
 }
 
-class _SwipeToDeleteState extends State<_SwipeToDelete> {
+class _SwipeToDeleteState extends State<_SwipeToDelete> with SingleTickerProviderStateMixin {
   static const double _actionWidth = 64;
   static const double _gap = 10;
   static const double _openExtent = _actionWidth + _gap;
 
+  /// Releasing a drag past this fraction of the card's width deletes it.
+  static const double _fullSwipe = 0.55;
+
+  /// A fast fling (px/s) that has travelled at least [_flingFloor] of the
+  /// width also deletes it.
+  static const double _flingSpeed = 1800;
+  static const double _flingFloor = 0.35;
+
+  /// The exit is one run: first the card leaves (slides off to the left, or
+  /// fades), then the empty row collapses. [_leaveShare] is the first part.
+  static const Duration _exitDuration = Duration(milliseconds: 480);
+  static const double _leaveShare = 0.5;
+
+  late final AnimationController _out = AnimationController(
+    vsync: this,
+    duration: _exitDuration,
+  );
+
   double _dx = 0;
   bool _dragging = false;
+  _Exit _exit = _Exit.none;
+  double _exitFrom = 0;
 
   bool get _open => _dx <= -_openExtent / 2;
 
-  void _onDragUpdate(DragUpdateDetails d) {
+  @override
+  void dispose() {
+    _out.dispose();
+    super.dispose();
+  }
+
+  void _onDragUpdate(DragUpdateDetails d, double width) {
+    if (_exit != _Exit.none) return;
     setState(() {
       _dragging = true;
-      _dx = (_dx + d.delta.dx).clamp(-_openExtent, 0.0);
+      _dx = (_dx + d.delta.dx).clamp(-width, 0.0).toDouble();
     });
   }
 
-  void _onDragEnd(DragEndDetails d) {
+  void _onDragEnd(DragEndDetails d, double width) {
+    if (_exit != _Exit.none) return;
     final v = d.primaryVelocity ?? 0;
+
+    // All the way to the left: delete it, no button needed.
+    final pulledFar = -_dx >= width * _fullSwipe;
+    final flung = v < -_flingSpeed && -_dx >= width * _flingFloor;
+    if (pulledFar || flung) {
+      _dismiss(_Exit.slide);
+      return;
+    }
+
     setState(() {
       _dragging = false;
       if (v < -300) {
@@ -179,49 +235,138 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
 
   void _close() => setState(() => _dx = 0);
 
+  /// Plays the exit animation, then deletes for real once the row is gone.
+  void _dismiss(_Exit kind) {
+    if (_exit != _Exit.none) return;
+    setState(() {
+      _exit = kind;
+      _dragging = false;
+      _exitFrom = _dx;
+    });
+    _out.forward().then((_) {
+      if (mounted) widget.onDelete();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onHorizontalDragUpdate: _onDragUpdate,
-      onHorizontalDragEnd: _onDragEnd,
-      child: Stack(
-        children: [
-          // Trash button, revealed behind the card as it slides left.
-          Positioned.fill(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: SortioPressScale(
-                onTap: widget.onDelete,
-                child: Container(
-                  width: _actionWidth,
-                  decoration: BoxDecoration(
-                    color: SortioColors.redArm,
-                    borderRadius: BorderRadius.circular(16),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+
+        return AnimatedBuilder(
+          animation: _out,
+          builder: (context, _) {
+            final t = _out.value;
+            final leave = (t / _leaveShare).clamp(0.0, 1.0).toDouble();
+            final collapse = Curves.easeInOutCubic.transform(
+              ((t - _leaveShare) / (1 - _leaveShare)).clamp(0.0, 1.0).toDouble(),
+            );
+            final slideT = Curves.easeInCubic.transform(leave);
+            final fadeT = Curves.easeInOut.transform(leave);
+            final opacity = (_exit == _Exit.fade ? 1 - fadeT : 1.0) * (1 - collapse);
+
+            return ClipRect(
+              clipper: const _RowClipper(),
+              child: Align(
+                alignment: Alignment.topCenter,
+                heightFactor: 1 - collapse,
+                child: Opacity(
+                  opacity: opacity,
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: widget.bottomGap),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onHorizontalDragUpdate: (d) => _onDragUpdate(d, width),
+                      onHorizontalDragEnd: (d) => _onDragEnd(d, width),
+                      // The card's offset is animated here (instant while the
+                      // finger is down), so the trash area and the card always
+                      // move together.
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(end: _dx),
+                        duration: _dragging || _exit != _Exit.none
+                            ? Duration.zero
+                            : const Duration(milliseconds: 200),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, settled, _) {
+                          // A full swipe keeps going until the card is off
+                          // screen (list padding included).
+                          final dx = _exit == _Exit.slide
+                              ? lerpDouble(_exitFrom, -(width + 24), slideT)!
+                              : settled;
+                          return _stack(width, dx);
+                        },
+                      ),
+                    ),
                   ),
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.delete_outline, size: 22, color: Colors.white),
                 ),
               ),
-            ),
-          ),
-          AnimatedContainer(
-            duration: _dragging ? Duration.zero : const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            transform: Matrix4.translationValues(_dx, 0, 0),
-            child: _dx == 0
-                ? widget.child
-                // While open, a tap on the card just closes it.
-                : GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _close,
-                    child: AbsorbPointer(child: widget.child),
-                  ),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
+
+  Widget _stack(double width, double dx) {
+    // Trash area: a 64 px button that grows to fill the whole row as the card
+    // is pulled past the open position toward a full swipe.
+    final reveal = (-dx).clamp(0.0, width).toDouble();
+    final pastOpen = width <= _openExtent
+        ? 0.0
+        : ((reveal - _openExtent) / (width - _openExtent)).clamp(0.0, 1.0).toDouble();
+    final buttonWidth = _actionWidth + (width - _actionWidth) * pastOpen;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // Trash button, revealed behind the card as it slides left.
+        Positioned(
+          top: 0,
+          bottom: 0,
+          right: 0,
+          width: buttonWidth,
+          child: SortioPressScale(
+            onTap: () => _dismiss(_Exit.fade),
+            child: Container(
+              decoration: BoxDecoration(
+                color: SortioColors.redArm,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: (_actionWidth - 22) / 2),
+              child: const Icon(Icons.delete_outline, size: 22, color: Colors.white),
+            ),
+          ),
+        ),
+        Transform.translate(
+          offset: Offset(dx, 0),
+          child: _exit != _Exit.none
+              ? IgnorePointer(child: widget.child)
+              : _dx == 0
+                  ? widget.child
+                  // While open, a tap on the card just closes it.
+                  : GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _close,
+                      child: AbsorbPointer(child: widget.child),
+                    ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Clips only vertically (while a row collapses); the card stays free to slide
+/// out sideways over the list padding.
+class _RowClipper extends CustomClipper<Rect> {
+  const _RowClipper();
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(-4000, 0, size.width + 4000, size.height);
+
+  @override
+  bool shouldReclip(_RowClipper oldClipper) => false;
 }
 
 class _ChatRow extends StatelessWidget {

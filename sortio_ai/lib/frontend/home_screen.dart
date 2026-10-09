@@ -8,7 +8,6 @@
 import 'package:flutter/material.dart';
 
 import '../backend/controller.dart';
-import '../backend/data_output.dart';
 import '../backend/design_tokens.dart';
 import '../backend/models.dart';
 import '../backend/navigation.dart';
@@ -22,8 +21,16 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Listens to the controller so new or deleted chats show up here at once.
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) => _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
     final s = controller.savings;
-    final chats = SortioData.chatSessions().take(3).toList();
+    final chats = controller.chatSessions.take(3).toList();
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -137,7 +144,14 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             for (final chat in chats) ...[
-              _ChatPreviewRow(session: chat),
+              _ChatPreviewRow(
+                session: chat,
+                // Same as tapping it in History: open that conversation.
+                onTap: () {
+                  controller.openSession(chat.id);
+                  navigation.openChat();
+                },
+              ),
               const SizedBox(height: 8),
             ],
           ],
@@ -219,12 +233,19 @@ class _SeeAllButton extends StatelessWidget {
 }
 
 class _ChatPreviewRow extends StatelessWidget {
-  const _ChatPreviewRow({required this.session});
+  const _ChatPreviewRow({required this.session, required this.onTap});
 
   final ChatSession session;
 
+  /// Opens this conversation in the chat screen.
+  final VoidCallback onTap;
+
   @override
   Widget build(BuildContext context) {
+    return SortioPressScale(onTap: onTap, child: _card());
+  }
+
+  Widget _card() {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(

@@ -8,16 +8,21 @@
 // notch carved into the bar (the dot never touches the bar or the icons). It
 // glides to the selected tab, and only that tab shows its label.
 //
-// The "+" is a station of its own: going to chat, the dot first glides to the
-// middle (tucking behind the button) and only then does the "+" grow. Leaving
-// chat, the dot swipes out from the middle to the chosen tab.
+// The "+" is a station of its own: going to chat, the dot glides to the middle
+// and tucks behind the button. The "+" grows in lock-step with the dot — its
+// size is driven by the dot's distance, not by a separate timer — so growth
+// begins as the dot reaches the button's perimeter and there is no delay.
+// Leaving chat, the "+" relaxes at once and the dot swipes out from the middle.
+//
+// The "+" also has a soft blue fog around it that slowly drifts and breathes.
 //
 // Layout contract: the bar is FULL-BLEED — no margins on the left, right or
 // bottom. It is glued to the screen's bottom edge and extends behind the
 // system gesture area; only the icon row is inset by the safe area.
 // ============================================================================
 
-import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
@@ -56,16 +61,48 @@ class SortioNavBar extends StatefulWidget {
   /// How much the "+" grows while chat is the current screen.
   static const double _plusActiveScale = 1.2;
 
+  /// The "+" grows with the dot, driven by the dot's distance from the bar's
+  /// centre. Growth starts as the dot reaches the button's perimeter (button
+  /// radius 28 + dot radius 4, plus a hair of lead) and is complete once the
+  /// dot is tucked behind the button.
+  static const double _growStart = 36;
+  static const double _growEnd = 14;
+
+  /// How quickly the "+" relaxes once chat is left.
+  static const Duration _relaxDuration = Duration(milliseconds: 240);
+
+  /// One full loop of the "+" fog (the blobs drift once around per loop).
+  static const Duration _glowCycle = Duration(seconds: 7);
+
   @override
   State<SortioNavBar> createState() => _SortioNavBarState();
 }
 
-class _SortioNavBarState extends State<SortioNavBar> {
-  /// True once the "+" should be enlarged. When chat opens it is switched on
-  /// only after the dot has arrived in the middle; leaving chat clears it at
-  /// once.
-  late bool _plusGrown = widget.navigation.isChatOpen;
-  Timer? _growTimer;
+class _SortioNavBarState extends State<SortioNavBar> with TickerProviderStateMixin {
+  /// Drives the dot's glide between stations (0 → 1).
+  late final AnimationController _slide = AnimationController(
+    vsync: this,
+    duration: SortioNavBar._slide,
+  );
+
+  /// Drives the "+" fog: a seamless 0 → 1 loop, forever.
+  late final AnimationController _glow = AnimationController(
+    vsync: this,
+    duration: SortioNavBar._glowCycle,
+  )..repeat();
+
+  /// Relaxes the "+" back to normal size after chat is left (value 1 → 0).
+  late final AnimationController _relax = AnimationController(
+    vsync: this,
+    duration: SortioNavBar._relaxDuration,
+  );
+
+  bool _wasChat = false;
+
+  /// Last known bar width, and the glide's start/end x.
+  double? _width;
+  double _xFrom = 0;
+  double _xTo = 0;
 
   static int? _slotOf(SortioTab tab) => switch (tab) {
         SortioTab.home => 0,
@@ -77,9 +114,37 @@ class _SortioNavBarState extends State<SortioNavBar> {
 
   SortioNavigationController get navigation => widget.navigation;
 
+  /// Centre x of a tab slot (the "+" gap sits between slots 1 and 2). Chat has
+  /// no tab icon: its station is the middle of the bar, behind the "+".
+  static double _stationX(double width, SortioTab tab) {
+    final slot = _slotOf(tab);
+    if (slot == null) return width / 2;
+    final tabWidth = (width - SortioNavBar._plusGap) / 4;
+    return tabWidth * slot + (slot >= 2 ? SortioNavBar._plusGap : 0) + tabWidth / 2;
+  }
+
+  /// Where the dot is right now.
+  double get _x =>
+      _xFrom + (_xTo - _xFrom) * SortioNavBar._slideCurve.transform(_slide.value);
+
+  /// 0 → 1 from the dot's distance to the bar's centre: 0 while it is outside
+  /// the button's perimeter, 1 once it is tucked behind the button.
+  double _proximity(double x, double width) {
+    final raw = (SortioNavBar._growStart - (x - width / 2).abs()) /
+        (SortioNavBar._growStart - SortioNavBar._growEnd);
+    return Curves.easeInOut.transform(raw.clamp(0.0, 1.0).toDouble());
+  }
+
+  /// How grown the "+" is right now (0 = normal, 1 = fully grown).
+  double _grown(double x, double width) => math.max(
+        navigation.isChatOpen ? _proximity(x, width) : 0.0,
+        _relax.value,
+      );
+
   @override
   void initState() {
     super.initState();
+    _wasChat = navigation.isChatOpen;
     navigation.addListener(_onNavigation);
   }
 
@@ -94,22 +159,32 @@ class _SortioNavBarState extends State<SortioNavBar> {
 
   @override
   void dispose() {
-    _growTimer?.cancel();
     navigation.removeListener(_onNavigation);
+    _slide.dispose();
+    _glow.dispose();
+    _relax.dispose();
     super.dispose();
   }
 
   void _onNavigation() {
-    _growTimer?.cancel();
-    if (navigation.isChatOpen) {
-      // Let the dot reach the middle first, then grow the button.
-      _growTimer = Timer(SortioNavBar._slide, () {
-        if (!mounted || !navigation.isChatOpen) return;
-        setState(() => _plusGrown = true);
-      });
-    } else if (_plusGrown) {
-      setState(() => _plusGrown = false);
+    final width = _width;
+    if (width == null) return;
+
+    // Leaving chat: the "+" relaxes at once, from however grown it is now.
+    final chat = navigation.isChatOpen;
+    if (_wasChat && !chat) {
+      _relax.value = math.max(_relax.value, _proximity(_x, width));
+      _relax.animateTo(0, curve: Curves.easeOutCubic);
     }
+    _wasChat = chat;
+
+    final to = _stationX(width, navigation.tab);
+    if (to == _xTo) return;
+    // Re-targeting mid-flight continues from the dot's current position, so
+    // quick taps between stations stay smooth.
+    _xFrom = _x;
+    _xTo = to;
+    _slide.forward(from: 0);
   }
 
   @override
@@ -118,138 +193,51 @@ class _SortioNavBarState extends State<SortioNavBar> {
     final totalHeight =
         SortioNavBar._barHeight + bottomInset + SortioNavBar._plusOverhang;
 
-    return ListenableBuilder(
-      listenable: navigation,
-      builder: (context, _) {
-        return SizedBox(
-          height: totalHeight,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              // -- The bar itself: glued to the bottom, full width ----------
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _bar(context, bottomInset),
-              ),
-
-              // -- Floating "+" centred above the bar (drawn over the dot) --
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: SortioNavBar._barHeight + bottomInset - 38,
-                child: Center(child: _plusButton(context)),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _bar(BuildContext context, double bottomInset) {
-    final slot = _slotOf(navigation.tab);
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final tabWidth = (width - SortioNavBar._plusGap) / 4;
-        // Centre of each of the four tab slots (the "+" gap sits between
-        // slots 1 and 2).
-        double centerOf(int s) =>
-            tabWidth * s + (s >= 2 ? SortioNavBar._plusGap : 0) + tabWidth / 2;
+        if (_width != width) {
+          // First layout (or a width change): put the dot on its station
+          // without animating.
+          _width = width;
+          _xFrom = _xTo = _stationX(width, navigation.tab);
+        }
 
-        // Chat has no tab icon: its station is the middle of the bar, where
-        // the dot tucks in behind the "+".
-        final targetX = slot == null ? width / 2 : centerOf(slot);
+        return ListenableBuilder(
+          listenable: navigation,
+          builder: (context, _) {
+            return AnimatedBuilder(
+              animation: Listenable.merge([_slide, _relax]),
+              builder: (context, _) {
+                final x = _x;
+                // The "+" grows in lock-step with the dot (no separate timer,
+                // so no delay) and relaxes the instant chat closes.
+                final grown = _grown(x, width);
 
-        // Re-targeting mid-flight continues from the current position, so
-        // quick taps between stations stay smooth.
-        return TweenAnimationBuilder<double>(
-          tween: Tween<double>(end: targetX),
-          duration: SortioNavBar._slide,
-          curve: SortioNavBar._slideCurve,
-          builder: (context, notchX, _) {
-            return CustomPaint(
-              painter: _NavBarPainter(
-                notchX: notchX,
-                dotSize: SortioNavBar._dotSize,
-                dotGap: SortioNavBar._dotGap,
-                fill: SortioColors.panel,
-                border: SortioColors.border,
-                shadow: SortioColors.isDark
-                    ? const Color(0x66000000)
-                    : const Color(0x1A0F172A),
-              ),
-              child: Padding(
-                padding: EdgeInsets.only(bottom: bottomInset),
-                child: SizedBox(
-                  height: SortioNavBar._barHeight,
+                return SizedBox(
+                  height: totalHeight,
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      Row(
-                        children: [
-                          _TabItem(
-                            tab: SortioTab.home,
-                            icon: Icons.home_outlined,
-                            label: 'Home',
-                            navigation: navigation,
-                          ),
-                          _TabItem(
-                            tab: SortioTab.history,
-                            icon: Icons.history,
-                            label: 'History',
-                            navigation: navigation,
-                          ),
-                          // Reserved space so the four tabs straddle the
-                          // floating "+".
-                          const SizedBox(width: SortioNavBar._plusGap),
-                          _TabItem(
-                            tab: SortioTab.files,
-                            icon: Icons.folder_outlined,
-                            label: 'Files',
-                            navigation: navigation,
-                          ),
-                          _TabItem(
-                            tab: SortioTab.settings,
-                            icon: Icons.settings_outlined,
-                            label: 'Settings',
-                            navigation: navigation,
-                          ),
-                        ],
+                      // -- The bar itself: glued to the bottom, full width ----
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: _bar(context, bottomInset, x),
                       ),
 
-                      // -- The dot, floating inside its notch -----------------
+                      // -- Floating "+" centred above the bar (over the dot) --
                       Positioned(
-                        left: notchX - SortioNavBar._dotSize / 2,
-                        top: _NavBarPainter.dotTop(
-                          dotSize: SortioNavBar._dotSize,
-                          dotGap: SortioNavBar._dotGap,
-                        ),
-                        child: IgnorePointer(
-                          child: Container(
-                            width: SortioNavBar._dotSize,
-                            height: SortioNavBar._dotSize,
-                            decoration: BoxDecoration(
-                              color: SortioColors.accentBright,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: SortioColors.accent.withValues(alpha: 0.7),
-                                  blurRadius: 8,
-                                  spreadRadius: 1,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                        left: 0,
+                        right: 0,
+                        bottom: SortioNavBar._barHeight + bottomInset - 38,
+                        child: Center(child: _plusButton(context, grown)),
                       ),
                     ],
                   ),
-                ),
-              ),
+                );
+              },
             );
           },
         );
@@ -257,48 +245,215 @@ class _SortioNavBarState extends State<SortioNavBar> {
     );
   }
 
-  Widget _plusButton(BuildContext context) {
-    final grown = _plusGrown;
+  Widget _bar(BuildContext context, double bottomInset, double notchX) {
+    return CustomPaint(
+      painter: _NavBarPainter(
+        notchX: notchX,
+        dotSize: SortioNavBar._dotSize,
+        dotGap: SortioNavBar._dotGap,
+        fill: SortioColors.panel,
+        border: SortioColors.border,
+        shadow: SortioColors.isDark ? const Color(0x66000000) : const Color(0x1A0F172A),
+      ),
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: SizedBox(
+          height: SortioNavBar._barHeight,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Row(
+                children: [
+                  _TabItem(
+                    tab: SortioTab.home,
+                    icon: Icons.home_outlined,
+                    label: 'Home',
+                    navigation: navigation,
+                  ),
+                  _TabItem(
+                    tab: SortioTab.history,
+                    icon: Icons.history,
+                    label: 'History',
+                    navigation: navigation,
+                  ),
+                  // Reserved space so the four tabs straddle the floating "+".
+                  const SizedBox(width: SortioNavBar._plusGap),
+                  _TabItem(
+                    tab: SortioTab.files,
+                    icon: Icons.folder_outlined,
+                    label: 'Files',
+                    navigation: navigation,
+                  ),
+                  _TabItem(
+                    tab: SortioTab.settings,
+                    icon: Icons.settings_outlined,
+                    label: 'Settings',
+                    navigation: navigation,
+                  ),
+                ],
+              ),
+
+              // -- The dot, floating inside its notch ---------------------------
+              Positioned(
+                left: notchX - SortioNavBar._dotSize / 2,
+                top: _NavBarPainter.dotTop(
+                  dotSize: SortioNavBar._dotSize,
+                  dotGap: SortioNavBar._dotGap,
+                ),
+                child: IgnorePointer(
+                  child: Container(
+                    width: SortioNavBar._dotSize,
+                    height: SortioNavBar._dotSize,
+                    decoration: BoxDecoration(
+                      color: SortioColors.accentBright,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: SortioColors.accent.withValues(alpha: 0.7),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _plusButton(BuildContext context, double grown) {
+    // Eased growth, locked to the dot's position (see _grown).
+    final scale = 1 + (SortioNavBar._plusActiveScale - 1) * grown;
+
     return Semantics(
       button: true,
       selected: navigation.isChatOpen,
       label: 'Open Sortio chat',
       child: SortioPressScale(
         onTap: navigation.openChat,
-        // Current screen: the "+" grows once the dot has arrived behind it.
-        child: AnimatedScale(
-          duration: const Duration(milliseconds: 320),
-          curve: Curves.easeOutCubic,
-          scale: grown ? SortioNavBar._plusActiveScale : 1,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutCubic,
+        child: Transform.scale(
+          scale: scale,
+          child: SizedBox(
             width: 56,
             height: 56,
-            decoration: BoxDecoration(
-              color: SortioColors.accent,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: SortioColors.accent.withValues(alpha: grown ? 0.9 : 0.7),
-                  offset: const Offset(0, 8),
-                  blurRadius: 22,
-                  spreadRadius: -6,
-                ),
-                if (grown)
-                  BoxShadow(
-                    color: SortioColors.accent.withValues(alpha: 0.25),
-                    blurRadius: 0,
-                    spreadRadius: 4,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                // The soft blue fog: blobs drifting slowly around the button.
+                // Own repaint boundary + own ticker, so the animation never
+                // rebuilds the rest of the bar.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: RepaintBoundary(
+                      child: AnimatedBuilder(
+                        animation: _glow,
+                        builder: (context, _) => CustomPaint(
+                          painter: _FogPainter(
+                            t: _glow.value,
+                            base: SortioColors.accent,
+                            light: SortioColors.accentBright,
+                            boost: grown,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
+                ),
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: SortioColors.accent,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      // Crisp halo ring that appears with the growth.
+                      if (grown > 0.001)
+                        BoxShadow(
+                          color: SortioColors.accent.withValues(alpha: 0.25 * grown),
+                          blurRadius: 0,
+                          spreadRadius: 4 * grown,
+                        ),
+                    ],
+                  ),
+                  child: Icon(Icons.add, size: 28, color: SortioColors.onAccent),
+                ),
               ],
             ),
-            child: Icon(Icons.add, size: 28, color: SortioColors.onAccent),
           ),
         ),
       ),
     );
   }
+}
+
+/// Paints the "+" button's blue fog: a breathing base glow under the button
+/// plus two soft blobs drifting slowly around it.
+///
+/// [t] is a seamless 0 → 1 loop. Every motion uses a whole number of turns per
+/// loop, so nothing jumps or stalls when the loop restarts. [boost] (0 → 1)
+/// brightens the fog while the button is grown.
+class _FogPainter extends CustomPainter {
+  _FogPainter({
+    required this.t,
+    required this.base,
+    required this.light,
+    required this.boost,
+  });
+
+  final double t;
+  final Color base;
+  final Color light;
+  final double boost;
+
+  static const double _tau = math.pi * 2;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+
+    // 0 → 1 → 0, twice per loop, perfectly smooth.
+    final breath = 0.5 - 0.5 * math.cos(_tau * 2 * t);
+
+    // Base glow, swelling and fading under the button.
+    canvas.drawCircle(
+      c + const Offset(0, 8),
+      28 + lerpDouble(-7, -3, breath)!,
+      Paint()
+        ..color = base.withValues(
+          alpha: (lerpDouble(0.45, 0.8, breath)! + 0.12 * boost).clamp(0.0, 1.0).toDouble(),
+        )
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, lerpDouble(9, 16, breath)!),
+    );
+
+    // Blob one: drifts clockwise.
+    final a1 = _tau * t;
+    canvas.drawCircle(
+      c + Offset(math.cos(a1) * 15, math.sin(a1) * 11 + 6),
+      16 + 3 * math.sin(_tau * 3 * t),
+      Paint()
+        ..color = base.withValues(alpha: 0.42 + 0.12 * boost)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11),
+    );
+
+    // Blob two: lighter, drifts the other way round, a little wider.
+    final a2 = -_tau * t + 2.2;
+    canvas.drawCircle(
+      c + Offset(math.cos(a2) * 19, math.sin(a2) * 9 + 9),
+      14 + 3 * math.sin(_tau * 2 * t + 1.3),
+      Paint()
+        ..color = light.withValues(alpha: 0.30 + 0.10 * boost)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FogPainter old) =>
+      old.t != t || old.base != base || old.light != light || old.boost != boost;
 }
 
 /// Paints the bar body (shadow, fill, top border) with a smooth round notch

@@ -339,6 +339,12 @@ class SortioDb {
         [m.id, chatId, m.isUser ? 1 : 0, m.text, m.at.millisecondsSinceEpoch],
       );
 
+  /// Removes one chat and its messages (the History swipe-to-delete).
+  void deleteChat(String id) => transaction(() {
+        _db.execute('DELETE FROM chat_messages WHERE chat_id = ?', [id]);
+        _db.execute('DELETE FROM chats WHERE id = ?', [id]);
+      });
+
   void deleteAllChats() => transaction(() {
         _db.execute('DELETE FROM chat_messages');
         _db.execute('DELETE FROM chats');

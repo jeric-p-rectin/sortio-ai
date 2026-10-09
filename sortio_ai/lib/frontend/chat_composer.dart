@@ -66,7 +66,7 @@ class SortioComposerBar extends StatelessWidget {
                         maxLines: 5,
                         keyboardType: TextInputType.multiline,
                         textInputAction: TextInputAction.newline,
-                        textAlign: TextAlign.center,
+                        textAlign: TextAlign.start,
                         textAlignVertical: TextAlignVertical.center,
                         style: TextStyle(fontSize: 14.5, height: 1.3, color: SortioColors.textBody),
                         cursorColor: SortioColors.accent,
