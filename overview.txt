@@ -1,0 +1,76 @@
+Local File-System Agent
+Hackathon project plan: a private, on-device assistant that organizes your files, with your approval first.
+
+The Idea
+
+An AI agent that runs entirely on your laptop and Android phone, and helps with everyday file chores:
+• Organize the messy Downloads folder
+• Rename scanned documents based on what's inside them
+• Find files by describing them ("that invoice from March")
+It never changes a file without asking first. Nothing leaves the device, so the privacy story is easy to show: turn off Wi-Fi and it still works.
+The Problem
+Downloads folders pile up, scans are named things like IMG_2043.pdf, and finding one old invoice means opening file after file. Tidying by hand is boring, so it rarely gets done. Cloud tools can help, but they mean uploading private documents to someone else's server.
+
+Who It's For
+• Students and professionals with piles of downloads and scans
+• Freelancers and small business owners who need invoices and receipts fast
+• Anyone who handles private documents and doesn't want them sent online
+
+How It Works
+1. Look: the agent checks only the folders you allow.
+2. Suggest: it proposes tidy-ups, each with a short reason.
+3. Approve: you review a before/after list on your laptop or phone and accept or reject each item.
+4. Apply: approved changes are made, and you can undo them any time.
+
+The AI only suggests. Nothing changes until you say yes.
+
+Benefits
+• Saves time: tidy a month of clutter in minutes.
+• Finds things fast: describe a file in plain words instead of digging through folders.
+• Private by design: files and AI stay on your device, even offline.
+• Stays in your control: nothing changes without your approval, and everything can be undone.
+• Works where you are: on both a laptop and an Android phone.
+
+Privacy and Safety
+• Works only inside folders you choose.
+• Only three actions allowed: move, rename, create folder.
+• Never deletes. Unwanted files go to a quarantine folder.
+• Never overwrites an existing file.
+• Every action is logged, with one-click undo.
+
+Where It Runs
+
+The agent works on both a laptop and an Android phone, fully on the device. The experience is the same on each: suggestions, approval and undo. On Android, you choose which folders it can see, such as Downloads, Screenshots, Camera and WhatsApp media.
+
+Features
+
+Must have (for the demo)
+• Organize Downloads with an approval screen
+• Rename scans from their content (e.g. 2026-03_Meralco_Invoice.pdf)
+• Search in plain language ("invoice from March")
+• Undo
+• Privacy panel showing the app is offline
+
+Nice to have
+• Duplicate file finder
+• Phone notification when a new file arrives in Downloads
+• Learns your habits from past approvals
+• Confidence score on each suggestion
+• Editable naming templates
+• Take a photo of a document on the phone and have it filed automatically
+• Warning badge for sensitive files (IDs, payslips)
+
+Stretch
+• Voice search
+• Storage cleanup report
+• Exportable activity log
+
+Suggested Additions
+Ideas that would add value if time allows:
+• Savings summary: after each cleanup, show files organized, space freed and time saved.
+• Preview-only mode: first-time users see suggestions without any changes being possible, to build trust.
+• Easy restore: unwanted files wait in a holding folder and can be brought back with one tap.
+• Rules in plain words: say "always file Zoom receipts under Finance" and it remembers.
+• Quick setup: pick folders and a naming style in under a minute.
+• Weekly tidy-up nudge: a gentle reminder when downloads start piling up.
+• Multi-language search: understand requests written in more than one language.
