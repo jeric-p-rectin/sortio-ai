@@ -259,6 +259,10 @@ class LocalSortioCore implements SortioCore {
           final filedA = _isFiled(a.path) ? 0 : 1;
           final filedB = _isFiled(b.path) ? 0 : 1;
           if (filedA != filedB) return filedA - filedB;
+          // Camera originals beat copies that landed in Downloads.
+          final photoA = _inPhotoRoot(a.path) ? 0 : 1;
+          final photoB = _inPhotoRoot(b.path) ? 0 : 1;
+          if (photoA != photoB) return photoA - photoB;
           final age = a.modified.compareTo(b.modified);
           return age != 0 ? age : a.name.length.compareTo(b.name.length);
         });
@@ -268,6 +272,11 @@ class LocalSortioCore implements SortioCore {
       }
     }
     return copies;
+  }
+
+  bool _inPhotoRoot(String path) {
+    final root = _validator.rootOf(path);
+    return root != null && photoRoots.contains(root);
   }
 
   /// In a sub-folder of an allowed folder (already organized).
@@ -304,7 +313,8 @@ class LocalSortioCore implements SortioCore {
     final target = uniqueTarget(
         p.join(root, quarantineFolderName, p.basename(path)), claimed);
     claimed.add(p.canonicalize(target));
-    final shown = p.relative(original, from: p.dirname(root));
+    // "Download/receipt.jpg": the original's folder and name.
+    final shown = '${p.basename(p.dirname(original))}/${p.basename(original)}';
     return Suggestion(
       id: newId(),
       type: ActionType.move,

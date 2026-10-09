@@ -774,7 +774,10 @@ class SortioController extends ChangeNotifier {
     if (engine == null) return SortioData.templateHelp;
     final example = core.NameBuilder(template: template)
         .build(date: '2026-03', issuer: 'Meralco', type: 'Bill', extension: '.pdf');
-    if (!template.contains('{') || example == null || example == 'Bill.pdf') {
+    final wellFormed =
+        RegExp(r'^(?:[^{}]|\{(?:date|issuer|type)\})+$').hasMatch(template) &&
+            template.contains('{');
+    if (!wellFormed || example == null || example == 'Bill.pdf') {
       return SortioData.templateHelp;
     }
     namingTemplate = template;
