@@ -279,7 +279,8 @@ class SortioController extends ChangeNotifier {
             ],
           ),
       ]);
-    if (!chatSessions.any((c) => c.id == SortioData.scriptedChatId)) {
+    final firstLaunch = engine.db.setting(_welcomeKey) == null;
+    if (firstLaunch && !chatSessions.any((c) => c.id == SortioData.scriptedChatId)) {
       final welcome = ChatSession(
         id: SortioData.scriptedChatId,
         title: SortioData.welcomeTitle,
@@ -293,12 +294,15 @@ class SortioController extends ChangeNotifier {
       for (final m in welcome.messages) {
         _persistMessage(welcome, m);
       }
+      engine.db.saveSetting(_welcomeKey, '1');
     }
     _cardsSessionId = SortioData.scriptedChatId;
-    activeSession = chatSessions.firstWhere(
-      (c) => c.id == SortioData.scriptedChatId,
-      orElse: () => chatSessions.first,
-    );
+    activeSession = chatSessions.isEmpty
+        ? null // brand-new chat welcome state
+        : chatSessions.firstWhere(
+            (c) => c.id == SortioData.scriptedChatId,
+            orElse: () => chatSessions.first,
+          );
     SortioData.liveChats = chatSessions; // same list: Home sees new chats too
     _notify();
   }
@@ -322,6 +326,7 @@ class SortioController extends ChangeNotifier {
   // --- House rules -----------------------------------------------------------
 
   static const _rulesKey = 'house_rules';
+  static const _welcomeKey = 'welcome_shown';
   Timer? _rulesTimer;
 
   void _loadRules() {
@@ -350,8 +355,9 @@ class SortioController extends ChangeNotifier {
   /// Swap a pending card for an updated one, keeping its place in the feed.
   void _replaceCard(core.Suggestion s) {
     final card = suggestions[s.id];
-    if (card == null || !card.isPending || card.closing || editingId == s.id)
+    if (card == null || !card.isPending || card.closing || editingId == s.id) {
       return;
+    }
     _engineById[s.id] = s;
     suggestions[s.id] = _toCard(s);
     _notify();
@@ -478,8 +484,9 @@ class SortioController extends ChangeNotifier {
   void _syncDemoReply() {
     if (_cardsSessionId != SortioData.scriptedChatId) return;
     for (final chat in chatSessions) {
-      if (chat.id != SortioData.scriptedChatId || chat.messages.length < 2)
+      if (chat.id != SortioData.scriptedChatId || chat.messages.length < 2) {
         continue;
+      }
       final seeded = chat.messages[1];
       if (seeded.isUser) return;
       chat.messages[1] = ChatMessage(
@@ -533,8 +540,9 @@ class SortioController extends ChangeNotifier {
   ];
 
   static String _size(int bytes) {
-    if (bytes >= 1024 * 1024)
+    if (bytes >= 1024 * 1024) {
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
     if (bytes >= 1024) return '${(bytes / 1024).round()} KB';
     return '$bytes B';
   }
@@ -569,12 +577,14 @@ class SortioController extends ChangeNotifier {
 
   /// Which File Manager group a path belongs to.
   static String? _folderKeyFor(String path) {
-    if (path.contains('/${core.LocalSortioCore.quarantineFolderName}/'))
+    if (path.contains('/${core.LocalSortioCore.quarantineFolderName}/')) {
       return 'quarantine';
+    }
     for (final entry in SortioData.folderDirs.entries) {
       for (final dir in entry.value) {
-        if (p.isWithin(p.join(SortioData.storageRoot, dir), path))
+        if (p.isWithin(p.join(SortioData.storageRoot, dir), path)) {
           return entry.key;
+        }
       }
     }
     return null;
@@ -913,8 +923,6 @@ class SortioController extends ChangeNotifier {
       _armTimer?.cancel();
       armed = false;
       _engine?.wipeMemory();
-      _engine?.db.saveSetting(_rulesKey, '');
-      _engine?.houseRules = core.HouseRules.empty;
       _batchById.clear();
       if (_engine != null) {
         chatSessions.clear();

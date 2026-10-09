@@ -40,7 +40,7 @@ class RenameService {
   final LlmClient _llm;
   final DateExtractor _dates;
   final IssuerCleaner _issuers;
-  final NameBuilder _names;
+  final NameBuilder names;
 
   /// OCR text sent to the model is cut to this many characters (~300
   /// tokens) — the header of a document has the issuer and type, and short
@@ -51,11 +51,10 @@ class RenameService {
     this._llm, {
     DateExtractor? dates,
     IssuerCleaner? issuers,
-    NameBuilder names = const NameBuilder(),
+    this.names = const NameBuilder(),
     this.maxChars = 1200,
   })  : _dates = dates ?? DateExtractor(),
-        _issuers = issuers ?? IssuerCleaner(),
-        _names = names;
+        _issuers = issuers ?? IssuerCleaner();
 
   static const _monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -121,7 +120,7 @@ class RenameService {
         _typeFromHeading(text) ?? (docTypes.contains(rawType) ? rawType! : 'Other');
     if (issuer == null && docType == 'Other') return null;
 
-    final newName = _names.build(
+    final newName = names.build(
       date: date?.yearMonth,
       issuer: issuer,
       type: docType == 'Other' ? 'Document' : docType,
