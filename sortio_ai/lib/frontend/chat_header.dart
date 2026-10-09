@@ -10,12 +10,14 @@ import 'package:flutter/material.dart';
 import '../backend/animations.dart';
 import '../backend/controller.dart';
 import '../backend/design_tokens.dart';
+import '../backend/navigation.dart';
 import 'shared_widgets.dart';
 
 class SortioHeaderBar extends StatelessWidget {
-  const SortioHeaderBar({super.key, required this.controller});
+  const SortioHeaderBar({super.key, required this.controller, required this.navigation});
 
   final SortioController controller;
+  final SortioNavigationController navigation;
 
   @override
   Widget build(BuildContext context) {
@@ -29,6 +31,7 @@ class SortioHeaderBar extends StatelessWidget {
       child: Row(
         children: [
           SortioIconButton(
+            key: const Key('chat-menu'),
             icon: Icons.menu,
             tooltip: 'Open sessions',
             onPressed: c.openDrawer,
@@ -142,9 +145,10 @@ class SortioHeaderBar extends StatelessWidget {
             ),
           ),
           SortioIconButton(
+            key: const Key('chat-gear'),
             icon: Icons.settings_outlined,
             tooltip: 'Open privacy settings',
-            onPressed: c.openSheet,
+            onPressed: () => navigation.openSettings(),
           ),
         ],
       ),

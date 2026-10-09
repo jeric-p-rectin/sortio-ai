@@ -1,7 +1,7 @@
-// ============================================================================
-// Sortio AI — frontend/sessions_drawer.dart
+﻿// ============================================================================
+// Sortio AI â€” frontend/sessions_drawer.dart
 //
-// Screen: the slide-in Sessions drawer — session list (Current / Recent) and
+// Screen: the slide-in Sessions drawer â€” session list (Current / Recent) and
 // the Savings Summary card (files organized, space freed, time saved).
 // ============================================================================
 
@@ -11,6 +11,8 @@ import '../backend/controller.dart';
 import '../backend/design_tokens.dart';
 import '../backend/models.dart';
 import 'shared_widgets.dart';
+
+// The Savings Summary card here shares [SortioStatCell] with the Home screen.
 
 class SessionsDrawer extends StatelessWidget {
   const SessionsDrawer({super.key, required this.controller});
@@ -210,7 +212,7 @@ class _SavingsSummaryCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _StatCell(
+                child: SortioStatCell(
                   value: '${s.files}',
                   unit: '',
                   unitColor: null,
@@ -219,7 +221,7 @@ class _SavingsSummaryCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _StatCell(
+                child: SortioStatCell(
                   value: '${s.mbFreed}',
                   unit: 'MB',
                   unitColor: SortioColors.accentBright,
@@ -228,7 +230,7 @@ class _SavingsSummaryCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _StatCell(
+                child: SortioStatCell(
                   value: '${s.minutesSaved}',
                   unit: 'min',
                   unitColor: SortioColors.greenBright,
@@ -244,63 +246,11 @@ class _SavingsSummaryCard extends StatelessWidget {
               SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  '0 bytes uploaded · 100% on-device',
+                  '0 bytes uploaded Â· 100% on-device',
                   style: TextStyle(fontSize: 11, color: SortioColors.textMuted),
                 ),
               ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatCell extends StatelessWidget {
-  const _StatCell({required this.value, required this.unit, required this.unitColor, required this.label});
-
-  final String value;
-  final String unit;
-  final Color? unitColor;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 10),
-      decoration: BoxDecoration(
-        color: SortioColors.well,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: SortioColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text.rich(
-              TextSpan(
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.4,
-                  color: SortioColors.textBright,
-                ),
-                children: [
-                  TextSpan(text: value),
-                  if (unit.isNotEmpty)
-                    TextSpan(
-                      text: unit,
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: unitColor),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 11, height: 1.3, color: SortioColors.textMuted),
           ),
         ],
       ),
