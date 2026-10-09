@@ -34,12 +34,26 @@ class LlamaDartClient implements LlmClient {
         }
       }();
 
+  /// llama.cpp serves one request at a time: AI naming and chat routing
+  /// queue up here instead of overlapping.
+  Future<void> _queue = Future<void>.value();
+
   @override
   Future<Map<String, dynamic>> completeJson({
     required String system,
     required String user,
     required Map<String, dynamic> schema,
-  }) async {
+  }) {
+    final result = _queue.then((_) => _complete(system, user, schema));
+    _queue = result.then((_) {}, onError: (Object _) {});
+    return result;
+  }
+
+  Future<Map<String, dynamic>> _complete(
+    String system,
+    String user,
+    Map<String, dynamic> schema,
+  ) async {
     final engine = await load();
     final grammar = _grammars[schema] ??= jsonSchemaToGbnf(schema);
     try {

@@ -840,26 +840,171 @@ class SortioController extends ChangeNotifier {
       reply = SortioData.agentReply(visibleFolderNames);
     } else if (visibleFolderNames.isEmpty) {
       reply = SortioData.agentReply(visibleFolderNames);
-    } else if (_duplicateIntent.hasMatch(text)) {
-      _cardsSessionId = session.id;
-      await _rescan(
-        only: (s) => s.reason.startsWith(core.LocalSortioCore.duplicatePrefix),
-      );
-      reply = SortioData.duplicatesReply(suggestions.length);
-    } else if (_templateIntent.hasMatch(text)) {
-      reply = await _setNamingTemplate(_templateIntent.firstMatch(text)![1]!.trim());
-    } else if (_learnedIntent.hasMatch(text)) {
-      reply = SortioData.habitsReply([
-        for (final (key, folder, count) in engine.db.habits().take(8))
-          '${key.startsWith('issuer:') ? key.substring(7) : '${key.substring(4)} files'} → $folder ($count×)',
-      ]);
-    } else if (_tidyIntent.hasMatch(text)) {
-      _cardsSessionId = session.id; // this chat's scan owns the cards now
-      await _rescan();
-      reply = SortioData.scanReply(suggestions.length, visibleFolderNames);
     } else {
-      final hits = await engine.search(text);
-      reply = SortioData.searchReply(text, [
+      reply = await _respond(text, session, engine);
+    }
+    if (_disposed) return;
+
+    _finishReply(session, reply);
+  }
+
+  // --- Chat understanding -------------------------------------------------------
+  //
+  // Keywords first (instant, English + Tagalog). When nothing matches, the
+  // on-device model picks the intent from a fixed list (grammar-constrained,
+  // so it cannot invent actions). Search is the last resort.
+
+  static final _undoIntent = RegExp(
+    r'\b(undo|ibalik|bawiin|revert|i-?undo)\b',
+    caseSensitive: false,
+  );
+  static final _approveIntent = RegExp(
+    r"\b(approve|approved|apply|go ahead|sige|tuloy|do it|i-?approve|okay na|ok na|yes|oo)\b",
+    caseSensitive: false,
+  );
+  static final _ignoreIntent = RegExp(
+    r"\b(ignore|skip|reject|huwag|wag na|cancel|no thanks)\b",
+    caseSensitive: false,
+  );
+  static final _searchIntent = RegExp(
+    r'\b(find|search|where|hanapin|hanap|nasaan|asan|saan|look for|show me|locate)\b',
+    caseSensitive: false,
+  );
+  static final _thanksIntent = RegExp(
+    r'\b(thanks|thank you|salamat|ty)\b',
+    caseSensitive: false,
+  );
+  static final _helpIntent = RegExp(
+    r"^\s*(hi|hello|hey|yo|kumusta|musta|good (morning|afternoon|evening))\b|\b(help|tulong|what can you do|ano (ang )?kaya mo|paano)\b",
+    caseSensitive: false,
+  );
+
+  /// The intent from keywords alone, or null when unsure.
+  String? _ruleIntent(String text) {
+    if (_duplicateIntent.hasMatch(text)) return 'duplicates';
+    if (_templateIntent.hasMatch(text)) return 'template';
+    if (_learnedIntent.hasMatch(text)) return 'learned';
+    if (_undoIntent.hasMatch(text)) return 'undo';
+    if (_searchIntent.hasMatch(text)) return 'search';
+    if (_tidyIntent.hasMatch(text)) return 'tidy';
+    if (_ignoreIntent.hasMatch(text)) return 'ignore_all';
+    if (_approveIntent.hasMatch(text)) return 'approve_all';
+    if (_thanksIntent.hasMatch(text)) return 'thanks';
+    if (_helpIntent.hasMatch(text)) return 'help';
+    return null;
+  }
+
+  /// "sa photos" / "in my downloads" → folder key.
+  static String? _folderIn(String text) {
+    final t = text.toLowerCase();
+    if (RegExp(r'\b(download|downloads)\b').hasMatch(t)) return 'downloads';
+    if (RegExp(r'\b(photos?|pictures?|camera|gallery|litrato|larawan|screenshots?)\b').hasMatch(t)) {
+      return 'photos';
+    }
+    if (RegExp(r'\b(documents?|docs|dokumento)\b').hasMatch(t)) return 'documents';
+    return null;
+  }
+
+  static const _aiRouteTimeout = Duration(seconds: 8);
+
+  /// Ask the on-device model what the user wants (null if it is unavailable).
+  Future<({String intent, String? folder, String query})?> _aiRoute(String text) async {
+    await _modelReady;
+    final llm = _llm;
+    if (llm == null) return null;
+    try {
+      // Never keep the user waiting: if the model is busy (e.g. naming
+      // scans) or slow, fall back to search after a few seconds.
+      final json = await llm
+          .completeJson(
+            system: core.routerSystemPrompt,
+            user: text,
+            schema: core.routerSchema,
+          )
+          .timeout(_aiRouteTimeout);
+      final intent = json['intent'] as String?;
+      if (intent == null || !core.chatIntents.contains(intent)) return null;
+      final folder = json['folder'] as String?;
+      return (
+        intent: intent,
+        folder: folder == null || folder == 'any' ? null : folder,
+        query: (json['query'] as String? ?? '').trim(),
+      );
+    } on Object catch (e) {
+      debugPrint('Chat routing fell back to search: $e');
+      return null;
+    }
+  }
+
+  bool _inFolder(String path, String key) => [
+        for (final dir in SortioData.folderDirs[key] ?? const <String>[])
+          p.join(SortioData.storageRoot, dir),
+      ].any((root) => p.isWithin(root, path));
+
+  Future<String> _respond(
+    String text,
+    ChatSession session,
+    core.LocalSortioCore engine,
+  ) async {
+    var intent = _ruleIntent(text);
+    var folder = _folderIn(text);
+    var query = text;
+    if (intent == null) {
+      final routed = await _aiRoute(text);
+      intent = routed?.intent ?? 'search';
+      folder ??= routed?.folder;
+      if (routed != null && routed.query.isNotEmpty) query = routed.query;
+      // The small model sometimes calls a request "help" or "thanks"; if the
+      // message actually matches files, answer with them instead.
+      if (intent == 'help' || intent == 'thanks') {
+        final hits = await engine.search(text);
+        if (hits.isNotEmpty) {
+          return SortioData.searchReply(text, [
+            for (final h in hits)
+              (name: h.name, where: _display(p.dirname(h.path)), why: h.matchReason ?? ''),
+          ]);
+        }
+      }
+    }
+
+    switch (intent) {
+      case 'duplicates':
+        _cardsSessionId = session.id;
+        await _rescan(
+          only: (s) => s.reason.startsWith(core.LocalSortioCore.duplicatePrefix),
+        );
+        return SortioData.duplicatesReply(suggestions.length);
+      case 'template':
+        return _setNamingTemplate(_templateIntent.firstMatch(text)![1]!.trim());
+      case 'learned':
+        return SortioData.habitsReply([
+          for (final (key, folder, count) in engine.db.habits().take(8))
+            '${key.startsWith('issuer:') ? key.substring(7) : '${key.substring(4)} files'} → $folder ($count×)',
+        ]);
+      case 'tidy':
+        _cardsSessionId = session.id; // this chat's scan owns the cards now
+        final scope = folder != null && (_folders[folder]?.allowed ?? false) ? folder : null;
+        await _rescan(only: scope == null ? null : (s) => _inFolder(s.sourcePath, scope));
+        return SortioData.scanReply(
+          suggestions.length,
+          scope == null ? visibleFolderNames : [_folders[scope]!.label],
+        );
+      case 'approve_all':
+        return _approveAll();
+      case 'ignore_all':
+        return _ignoreAll();
+      case 'undo':
+        return _undoLast();
+      case 'help':
+        return SortioData.helpReply(visibleFolderNames);
+      case 'thanks':
+        return SortioData.thanksReply;
+    }
+
+    // search
+    {
+      final hits = await engine.search(query);
+      return SortioData.searchReply(text, [
         for (final h in hits)
           (
             name: h.name,
@@ -868,8 +1013,61 @@ class SortioController extends ChangeNotifier {
           ),
       ]);
     }
-    if (_disposed) return;
+  }
 
+  /// "approve all": applies every waiting card the AI is sure enough about
+  /// (per the strictness setting); the rest stay for the user to check.
+  Future<String> _approveAll() async {
+    final pending = [
+      for (final e in suggestions.entries)
+        if (e.value.isPending && !e.value.closing) e.key,
+    ];
+    if (pending.isEmpty) return SortioData.nothingPending;
+    final threshold = strictOutput.threshold;
+    var done = 0, unsure = 0, failed = 0;
+    for (final id in pending) {
+      final planned = _engineById[id];
+      final quarantine =
+          planned?.category == core.LocalSortioCore.quarantineFolderName;
+      if (planned != null &&
+          !quarantine &&
+          (planned.confidence * 100).round() < threshold) {
+        unsure++;
+        continue;
+      }
+      await resolve(id, SuggestionState.applied);
+      if (_batchById.containsKey(id)) {
+        done++;
+      } else {
+        failed++;
+      }
+    }
+    return SortioData.approvedAll(done, unsure, failed);
+  }
+
+  Future<String> _ignoreAll() async {
+    final pending = [
+      for (final e in suggestions.entries)
+        if (e.value.isPending && !e.value.closing) e.key,
+    ];
+    for (final id in pending) {
+      await resolve(id, SuggestionState.ignored);
+    }
+    return SortioData.ignoredAll(pending.length);
+  }
+
+  /// "undo": reverses the most recent approved card.
+  Future<String> _undoLast() async {
+    if (_batchById.isEmpty) return SortioData.nothingToUndo;
+    final id = _batchById.keys.last;
+    final name = suggestions[id]?.fromPath.split('/').last ?? 'The file';
+    await undo(id);
+    return _batchById.containsKey(id)
+        ? 'I could not undo that one. It may have been moved since.'
+        : SortioData.undoneLast(name);
+  }
+
+  void _finishReply(ChatSession session, String reply) {
     final at = DateTime.now();
     final agentMessage = ChatMessage(
       id: 'a${at.microsecondsSinceEpoch}',

@@ -64,6 +64,38 @@ abstract final class SortioData {
   static String lowConfidenceReason(int percent, int threshold) =>
       'Only $percent% sure (your setting asks for $threshold%). Check it before approving.';
 
+  /// Conversation replies for the smarter chat.
+  static String helpReply(List<String> folders) =>
+      'Hi! I look after ${folders.isEmpty ? 'the folders you allow' : joinNames(folders)}, '
+      'right here on your phone. Try:\n'
+      '• "tidy my downloads" (or "ayusin ang photos")\n'
+      '• "find my Meralco bill from March"\n'
+      '• "find duplicates"\n'
+      '• "approve all", "skip all" or "undo"\n'
+      'Nothing moves until you approve.';
+  static const String thanksReply =
+      'You are welcome! Everything stayed on this phone.';
+  static const String nothingPending =
+      'There is nothing waiting for your approval. Say "tidy my downloads" to get suggestions.';
+  static String approvedAll(int done, int unsure, int failed) {
+    final parts = <String>[
+      if (done > 0) 'Done: $done tidy-up${done == 1 ? '' : 's'} applied.',
+      if (unsure > 0)
+        'I left $unsure for you to check, because I am not sure enough about '
+            '${unsure == 1 ? 'it' : 'them'}.',
+      if (failed > 0) '$failed could not be applied.',
+      if (done > 0) 'Everything is logged, so you can say "undo" anytime.',
+    ];
+    return parts.isEmpty ? nothingPending : parts.join(' ');
+  }
+
+  static String ignoredAll(int count) => count == 0
+      ? nothingPending
+      : 'Okay, I skipped $count suggestion${count == 1 ? '' : 's'}. Nothing was changed.';
+  static const String nothingToUndo = 'There is nothing to undo yet.';
+  static String undoneLast(String fileName) =>
+      'Undone. $fileName is back where it was.';
+
   /// Replies for the duplicate finder.
   static String duplicatesReply(int count) => count == 0
       ? 'No duplicate files in your allowed folders. Everything is one of a kind.'

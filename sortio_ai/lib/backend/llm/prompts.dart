@@ -19,6 +19,41 @@ const docTypes = [
   'Other',
 ];
 
+/// Chat intents the on-device model may pick when no keyword matched.
+const chatIntents = [
+  'tidy',
+  'search',
+  'duplicates',
+  'approve_all',
+  'ignore_all',
+  'undo',
+  'learned',
+  'help',
+  'thanks',
+];
+
+const routerSystemPrompt =
+    'You route messages for Sortio, an on-device file organizer app. Pick the '
+    "user's intent: tidy = organize or clean files; search = find a file (put "
+    'the words to search for in query); duplicates = find copies; approve_all = '
+    'accept the waiting suggestions; ignore_all = reject them; undo = reverse the '
+    'last change; learned = what Sortio learned; help = greetings or questions '
+    'about what Sortio can do; thanks = gratitude. folder = the folder the user '
+    'mentions, or any. Messages may be English, Tagalog or Taglish. JSON only.';
+
+const routerSchema = <String, dynamic>{
+  'type': 'object',
+  'properties': {
+    'intent': {'type': 'string', 'enum': chatIntents},
+    'folder': {
+      'type': 'string',
+      'enum': ['downloads', 'photos', 'documents', 'any'],
+    },
+    'query': {'type': 'string'},
+  },
+  'required': ['intent', 'folder', 'query'],
+};
+
 const classifySystemPrompt =
     'From the OCR text of a scanned document, give the issuer as a short '
     'brand name (e.g. Meralco, 7-Eleven, BDO) and the document type. '

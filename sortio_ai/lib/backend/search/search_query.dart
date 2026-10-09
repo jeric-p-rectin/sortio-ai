@@ -28,9 +28,12 @@ class SearchQuery {
     // English
     'a', 'an', 'the', 'from', 'of', 'in', 'on', 'for', 'to', 'my', 'that',
     'this', 'with', 'file', 'files', 'find', 'show', 'me', 'last', 'about',
+    'please', 'pls', 'can', 'could', 'you', 'i', 'want', 'need', 'get', 'give',
+    'where', 'is', 'are', 'search', 'look', 'open',
     // Tagalog / Taglish
     'yung', 'iyong', 'ang', 'ng', 'sa', 'mga', 'na', 'ko', 'kong', 'noong',
-    'nung', 'para', 'hanapin', 'pakihanap', 'galing',
+    'nung', 'para', 'hanapin', 'pakihanap', 'galing', 'paki', 'po', 'naman',
+    'nasaan', 'asan', 'saan', 'hanap', 'pahanap',
   };
 
   static const _months = <String, int>{
