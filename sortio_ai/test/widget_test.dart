@@ -9,7 +9,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
 
     expect(find.text('Sortio AI'), findsOneWidget);
-    expect(find.text('Offline Mode'), findsOneWidget);
     expect(find.text('Today · on-device session'), findsOneWidget);
     expect(
       find.text('Ask Sortio to find or tidy files…'),
@@ -17,23 +16,11 @@ void main() {
     );
   });
 
-  testWidgets('sessions drawer opens from the menu button', (tester) async {
+  testWidgets('settings tab opens the Privacy Command Center', (tester) async {
     await tester.pumpWidget(const SortioApp());
     await tester.pump(const Duration(milliseconds: 600));
 
-    await tester.tap(find.byIcon(Icons.menu));
-    await tester.pumpAndSettle(const Duration(milliseconds: 600));
-
-    expect(find.text('Sessions'), findsOneWidget);
-    expect(find.text('Savings Summary'), findsOneWidget);
-  });
-
-  testWidgets('settings gear jumps to the Privacy Command Center tab', (tester) async {
-    await tester.pumpWidget(const SortioApp());
-    await tester.pump(const Duration(milliseconds: 600));
-
-    // The header gear (not the nav-bar settings tab, which shares the icon).
-    await tester.tap(find.byKey(const Key('chat-gear')));
+    await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle(const Duration(milliseconds: 600));
 
     expect(find.text('Privacy Command Center'), findsOneWidget);

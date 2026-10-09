@@ -25,7 +25,7 @@ class HomeShell extends StatefulWidget {
   const HomeShell({super.key, this.initialPanel = StartPanel.none});
 
   /// Mirrors the prototype's `startPanel` prop: `settings` starts on the
-  /// Settings tab, `drawer` starts in the chat with the sessions drawer open.
+  /// Settings tab instead of the chat.
   final StartPanel initialPanel;
 
   @override
@@ -39,8 +39,7 @@ class _HomeShellState extends State<HomeShell> {
 
   /// One controller shared by Chat and Settings so folder permissions,
   /// strictness and rules stay in sync everywhere.
-  late final SortioController _controller =
-      SortioController(initialPanel: widget.initialPanel);
+  late final SortioController _controller = SortioController();
 
   @override
   void dispose() {
@@ -61,13 +60,7 @@ class _HomeShellState extends State<HomeShell> {
             children: [
               HomeScreen(controller: _controller, navigation: _navigation),
               HistoryScreen(navigation: _navigation),
-              ChatScreen(
-                controller: _controller,
-                navigation: _navigation,
-                initialPanel: widget.initialPanel == StartPanel.drawer
-                    ? StartPanel.drawer
-                    : StartPanel.none,
-              ),
+              ChatScreen(controller: _controller),
               FileManagerScreen(controller: _controller, navigation: _navigation),
               SettingsScreen(controller: _controller),
             ],
