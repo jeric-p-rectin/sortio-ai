@@ -76,6 +76,9 @@ class SortioController extends ChangeNotifier {
   LlamaDartClient? _llm;
   Future<void>? _modelReady;
   bool settingUpModel = false;
+
+  /// History entries that are not file actions (searches, wipes), this session.
+  final List<({DateTime at, HistoryEntry entry})> _sessionEvents = [];
   final Map<String, core.ContentInsights> _insightsById = {};
   int _scanGeneration = 0;
   bool aiBusy = false;
@@ -202,7 +205,12 @@ class SortioController extends ChangeNotifier {
     final generation = _scanGeneration;
     bool stale() => _disposed || generation != _scanGeneration;
 
-    final scans = [for (final s in _engineById.values) if (s.needsRename) s];
+    // Scans still to be named, plus ones already named from the cache (they
+    // still need their amount / sensitive badge on the card).
+    final scans = [
+      for (final s in _engineById.values)
+        if (s.needsRename || s.aiNamed) s,
+    ];
     if (scans.isEmpty) return;
     aiBusy = true;
     _notify();
@@ -238,6 +246,7 @@ class SortioController extends ChangeNotifier {
       if (generation == _scanGeneration) {
         aiBusy = false;
         _notify();
+        unawaited(_publishLiveData());
       }
     }
   }
@@ -260,6 +269,7 @@ class SortioController extends ChangeNotifier {
     }
     scanning = false;
     _notify();
+    unawaited(_publishLiveData());
     unawaited(_runAi());
   }
 
@@ -282,6 +292,129 @@ class SortioController extends ChangeNotifier {
       mbFreed: (quarantinedBytes / (1024 * 1024)).round(),
       minutesSaved: (files * 0.5).ceil(),
     );
+    _notify();
+    await _publishLiveData();
+  }
+
+  // --- Live History / Files data ------------------------------------------------
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String _when(DateTime t) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(t.year, t.month, t.day);
+    final hm = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    if (day == today) return 'Today · $hm';
+    if (day == today.subtract(const Duration(days: 1))) return 'Yesterday';
+    return '${_months[t.month - 1]} ${t.day}';
+  }
+
+  static String _size(int bytes) {
+    if (bytes >= 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (bytes >= 1024) return '${(bytes / 1024).round()} KB';
+    return '$bytes B';
+  }
+
+  static FileKind _kind(String name) {
+    final ext = p.extension(name).toLowerCase();
+    if (ext == '.pdf') return FileKind.pdf;
+    if (const {'.exe', '.msi', '.bat', '.cmd', '.apk', '.jar', '.scr'}.contains(ext)) {
+      return FileKind.exe;
+    }
+    if (const {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.bmp'}.contains(ext)) {
+      return FileKind.image;
+    }
+    return FileKind.doc;
+  }
+
+  /// Which File Manager group a path belongs to.
+  static String? _folderKeyFor(String path) {
+    if (path.contains('/${core.LocalSortioCore.quarantineFolderName}/')) return 'quarantine';
+    for (final entry in SortioData.folderDirs.entries) {
+      if (p.isWithin(p.join(SortioData.storageRoot, entry.value), path)) return entry.key;
+    }
+    return null;
+  }
+
+  HistoryEntry _historyFor(core.ActionRecord a) {
+    final quarantine = a.targetPath.contains(core.LocalSortioCore.quarantineFolderName);
+    final renamed = p.basename(a.sourcePath) != p.basename(a.targetPath);
+    final title = quarantine
+        ? 'Quarantined a file'
+        : renamed
+            ? 'Renamed & moved a file'
+            : 'Moved a file';
+    return HistoryEntry(
+      id: a.id,
+      title: a.undone ? '$title (undone)' : title,
+      detail: '${p.basename(a.sourcePath)} → ${_display(a.targetPath)}',
+      when: _when(a.timestamp),
+      tone: quarantine ? SuggestionTone.amber : SuggestionTone.cyan,
+      chip: quarantine
+          ? 'Quarantine'
+          : renamed
+              ? 'Rename'
+              : 'Cleanup',
+    );
+  }
+
+  void _logEvent(String title, String detail, String chip,
+      {SuggestionTone tone = SuggestionTone.cyan}) {
+    final at = DateTime.now();
+    _sessionEvents.add((
+      at: at,
+      entry: HistoryEntry(
+        id: 'e${at.microsecondsSinceEpoch}',
+        title: title,
+        detail: detail,
+        when: _when(at),
+        tone: tone,
+        chip: chip,
+      ),
+    ));
+    unawaited(_publishLiveData());
+  }
+
+  /// Rebuilds the History and File Manager data from the engine's journal
+  /// and file index (with OCR-based sensitive flags).
+  Future<void> _publishLiveData() async {
+    final engine = _engine;
+    if (engine == null || _disposed) return;
+
+    final actions = await engine.history();
+    final timeline = <({DateTime at, HistoryEntry entry})>[
+      for (final a in actions)
+        if (a.type != core.ActionType.createFolder) (at: a.timestamp, entry: _historyFor(a)),
+      ..._sessionEvents,
+    ]..sort((x, y) => y.at.compareTo(x.at));
+    SortioData.liveHistory = [for (final t in timeline) t.entry];
+
+    final pendingSources = {
+      for (final s in _engineById.entries)
+        if (suggestions[s.key]?.isPending ?? false) s.value.sourcePath,
+    };
+    final files = <FileItem>[];
+    for (final f in engine.db.recentFiles(limit: 400)) {
+      final key = _folderKeyFor(f.path);
+      if (key == null) continue;
+      final text = f.ocrText;
+      files.add(FileItem(
+        folderKey: key,
+        name: f.name,
+        size: _size(f.size),
+        modified: '${_months[f.modified.month - 1]} ${f.modified.day}',
+        kind: _kind(f.name),
+        sensitive: text != null &&
+            text.isNotEmpty &&
+            core.ContentInsights.fromText(text).isSensitive,
+        suggested: pendingSources.contains(f.path),
+      ));
+    }
+    SortioData.liveFiles = files;
     _notify();
   }
 
@@ -436,7 +569,14 @@ class SortioController extends ChangeNotifier {
       await _rescan();
       reply = SortioData.scanReply(suggestions.length, visibleFolderNames);
     } else {
+      final sw = Stopwatch()..start();
       final hits = await engine.search(text);
+      _logEvent(
+        'Found "$text"',
+        'Plain-language search · ${hits.length} result${hits.length == 1 ? '' : 's'} '
+            'in ${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)}s, on-device',
+        'Search',
+      );
       reply = SortioData.searchReply(text, [
         for (final h in hits)
           (name: h.name, where: _display(p.dirname(h.path)), why: h.matchReason ?? ''),
@@ -492,6 +632,10 @@ class SortioController extends ChangeNotifier {
       rules = '';
       _engine?.wipeMemory();
       _batchById.clear();
+      _sessionEvents.clear();
+      _logEvent('Wiped AI memory & logs',
+          'Cached OCR text, AI names and action logs cleared', 'Danger Zone',
+          tone: SuggestionTone.amber);
       unawaited(_refreshSavings());
       _toast('AI memory & logs wiped from this device.');
     }
@@ -546,6 +690,8 @@ class SortioController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    SortioData.liveHistory = null;
+    SortioData.liveFiles = null;
     _toastTimer?.cancel();
     _armTimer?.cancel();
     _copyTimer?.cancel();

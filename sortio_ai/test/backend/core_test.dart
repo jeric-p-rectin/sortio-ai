@@ -203,6 +203,20 @@ void main() {
           unorderedEquals(['2026-03_Meralco_Invoice.pdf', 'PLDT_invoice.pdf']));
     });
 
+    test('month filter uses the date printed inside a scan', () async {
+      final scan = await touch('scan_0001.pdf');
+      await scan.setLastModified(DateTime(2026, 10, 9)); // not January
+      final core = open(allowed: [downloads]);
+      await core.refreshIndex();
+      core.saveOcrText(scan.path,
+          'PAYSLIP Employee: Juan Dela Cruz Pay Period: January 1-15, 2026 Net Pay 13,543.70');
+
+      final hits = await core.search('payslip january');
+      expect(hits.single.name, 'scan_0001.pdf');
+      expect(hits.single.matchReason, contains('document dated January'));
+      expect(await core.search('payslip march'), isEmpty);
+    });
+
     test('finds scans by the text inside them (OCR)', () async {
       final scan = await touch('IMG_2043.pdf');
       await touch('notes.pdf');

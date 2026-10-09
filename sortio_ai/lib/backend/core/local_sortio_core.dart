@@ -10,6 +10,7 @@ import '../models/action_record.dart';
 import '../models/ids.dart';
 import '../models/results.dart';
 import '../models/suggestion.dart';
+import '../naming/date_extractor.dart';
 import '../naming/rename_service.dart';
 import '../privacy/network_status.dart';
 import '../rules/rules_engine.dart';
@@ -347,7 +348,8 @@ class LocalSortioCore implements SortioCore {
     final results = <FileResult>[];
     for (final f in candidates) {
       if (!_validator.isAllowed(f.path)) continue;
-      final dateReasons = query.matchDate(f.name, f.modified);
+      final dateReasons = query.matchDate(f.name, f.modified,
+          documentDate: _documentDate(query, f));
       if (dateReasons == null) continue;
       results.add(FileResult(
         path: f.path,
@@ -361,6 +363,18 @@ class LocalSortioCore implements SortioCore {
       if (results.length >= limit) break;
     }
     return results;
+  }
+
+  static final _dates = DateExtractor();
+
+  /// The date printed inside a scanned document (from its OCR text), only
+  /// computed when the query filters by month or year.
+  static DateTime? _documentDate(SearchQuery query, IndexedFile f) {
+    if (query.month == null && query.year == null) return null;
+    final text = f.ocrText;
+    if (text == null || text.isEmpty) return null;
+    final d = _dates.extract(text);
+    return d == null ? null : DateTime(d.year, d.month, d.day ?? 1);
   }
 
   static String _keywordReason(List<String> keywords, IndexedFile f) {

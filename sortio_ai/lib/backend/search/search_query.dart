@@ -89,10 +89,11 @@ class SearchQuery {
     ].join(', ');
   }
 
-  /// Month/year filter only. Matches either the file name
-  /// (e.g. 2026-03_Meralco_Invoice.pdf) or the file's modified date.
+  /// Month/year filter only. Matches, in order: the file name
+  /// (e.g. 2026-03_Meralco_Invoice.pdf), the date printed inside the document
+  /// ([documentDate], from OCR), then the file's modified date.
   /// Returns the reasons (empty when no date filter), or null for no match.
-  List<String>? matchDate(String fileName, DateTime modified) {
+  List<String>? matchDate(String fileName, DateTime modified, {DateTime? documentDate}) {
     final name = fileName.toLowerCase();
     final reasons = <String>[];
 
@@ -104,6 +105,8 @@ class SearchQuery {
           RegExp('(^|[^0-9])(19|20)\\d\\d[-_.]?$mm([^0-9]|\$)').hasMatch(name);
       if (inName) {
         reasons.add('dated ${_cap(full)} in name');
+      } else if (documentDate != null && documentDate.month == month) {
+        reasons.add('document dated ${_cap(full)}');
       } else if (modified.month == month) {
         reasons.add('modified in ${_cap(full)}');
       } else {
@@ -114,6 +117,8 @@ class SearchQuery {
     if (year != null) {
       if (name.contains('$year')) {
         reasons.add('$year in name');
+      } else if (documentDate != null && documentDate.year == year) {
+        reasons.add('document dated $year');
       } else if (modified.year == year) {
         reasons.add('modified in $year');
       } else {

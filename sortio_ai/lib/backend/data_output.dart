@@ -78,8 +78,18 @@ abstract final class SortioData {
 
   static const SavingsSummary savings = SavingsSummary(files: 45, mbFreed: 200, minutesSaved: 15);
 
+  /// Live data published by the controller once the on-device engine runs;
+  /// null means "use the demo data" (widget tests, web, engine unavailable).
+  static List<HistoryEntry>? liveHistory;
+  static List<FileItem>? liveFiles;
+
   /// The on-device action log shown in the History screen (newest first).
-  static List<HistoryEntry> history() => const [
+  static List<HistoryEntry> history() => liveHistory ?? demoHistory();
+
+  /// Files shown in the File Manager screen, grouped by folder key.
+  static List<FileItem> files() => liveFiles ?? demoFiles();
+
+  static List<HistoryEntry> demoHistory() => const [
         HistoryEntry(
           id: 'h1',
           title: 'Renamed & moved a PDF',
@@ -130,8 +140,7 @@ abstract final class SortioData {
         ),
       ];
 
-  /// Files shown in the File Manager screen, grouped by folder key.
-  static List<FileItem> files() => const [
+  static List<FileItem> demoFiles() => const [
         FileItem(
           folderKey: 'downloads',
           name: 'IMG_2043.pdf',
