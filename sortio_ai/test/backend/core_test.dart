@@ -295,6 +295,84 @@ void main() {
       expect(Directory(p.join(downloads, 'Quarantine')).existsSync(), isFalse);
     });
 
+    test('duplicates go to quarantine; the filed copy is kept', () async {
+      await Directory(p.join(downloads, 'Documents')).create();
+      final same = 'same bytes ' * 200; // > 1 KB
+      final filed = File(p.join(downloads, 'Documents', 'bill.pdf'))
+        ..writeAsStringSync(same);
+      final copy = await touch('bill (1).pdf', same);
+      await touch('other.pdf', 'diff bytes ' * 200); // same size, different content
+      final core = open();
+
+      final s = {for (final x in await core.scan([downloads])) x.fileName: x};
+      expect(s['bill (1).pdf']!.category, LocalSortioCore.quarantineFolderName);
+      expect(s['bill (1).pdf']!.reason, startsWith(LocalSortioCore.duplicatePrefix));
+      expect(s['other.pdf']!.category, 'Documents');
+      expect((await core.findDuplicates()), {copy.path: filed.path});
+    });
+
+    test('learns folders from approvals (by extension and by issuer)', () async {
+      final core = open(allowed: [downloads]);
+      Future<void> approveInto(String name, String folder) async {
+        final f = await touch(name);
+        final r = await core.apply([
+          Suggestion(
+            id: name,
+            type: ActionType.move,
+            sourcePath: f.path,
+            targetPath: p.join(downloads, folder, name),
+            reason: '',
+          ),
+        ]);
+        expect(r.rejected, isEmpty);
+      }
+
+      expect(core.learnedFolder('new.pdf'), isNull);
+      await approveInto('2026-01_Meralco_Statement.pdf', 'Bills/Meralco');
+      expect(core.learnedFolder('new.pdf'), isNull); // once is not a habit
+      await approveInto('2026-02_Meralco_Statement.pdf', 'Bills/Meralco');
+      expect(core.learnedFolder('2026-05_Meralco_Statement.pdf'), 'Bills/Meralco');
+      expect(core.learnedFolder('report.pdf'), 'Bills/Meralco'); // .pdf habit too
+
+      await touch('report.pdf');
+      final s = (await core.scan([downloads])).firstWhere((x) => x.fileName == 'report.pdf');
+      expect(s.category, 'Bills/Meralco');
+      expect(s.reason, contains(LocalSortioCore.learnedPrefix));
+
+      core.wipeMemory(); // "Deletes learned patterns"
+      expect(core.learnedFolder('report.pdf'), isNull);
+    });
+
+    test('issuer habit redirects an AI-named scan', () async {
+      final core = open(allowed: [downloads]);
+      for (final n in ['2026-01_Meralco_Statement.pdf', '2026-02_Meralco_Statement.pdf']) {
+        final f = await touch(n);
+        await core.apply([
+          Suggestion(id: n, type: ActionType.move, sourcePath: f.path,
+              targetPath: p.join(downloads, 'Bills', n), reason: ''),
+        ]);
+      }
+      await touch('IMG_2043.pdf');
+      final named = await core
+          .aiRename((await core.scan([downloads])).where((s) => s.needsRename).toList(),
+              RenameService(FakeLlm({'issuer': 'MERALCO', 'doc_type': 'Statement'})),
+              ocr: (_) async => 'MERALCO Statement of Account Bill Date: March 16, 2026')
+          .toList();
+      expect(named.single.targetPath, p.join(downloads, 'Bills', '2026-03_Meralco_Statement.pdf'));
+      expect(named.single.reason, contains(LocalSortioCore.learnedPrefix));
+    });
+
+    test('a new camera photo of a document gets a Scans suggestion', () async {
+      final camera = p.join(tmp.path, 'DCIM', 'Camera');
+      await Directory(camera).create(recursive: true);
+      final shot = File(p.join(camera, 'SORTIO_20261010_070000.jpg'))..writeAsStringSync('jpg');
+      final core = open(allowed: [camera]);
+      final s = (await core.suggestForDocument(shot.path))!;
+      expect(s.category, LocalSortioCore.photoCategory);
+      expect(s.needsRename, isTrue);
+      expect(await core.suggestForDocument(p.join(tmp.path, 'outside.jpg')), isNull);
+    });
+
     test('house rules win over category rules and read OCR text', () async {
       await touch('Zoom_Receipt_March.pdf');
       final scan = await touch('IMG_2043.pdf');

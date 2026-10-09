@@ -72,7 +72,7 @@ class IndexedFile {
 /// Caching is the main efficiency win: OCR and the LLM run once per file
 /// version, and the cache follows the file when Sortio moves or renames it.
 class SortioDb {
-  static const _schemaVersion = 2;
+  static const _schemaVersion = 3;
   static const maxOcrChars = 4000;
 
   final Database _db;
@@ -100,6 +100,7 @@ class SortioDb {
     if (version >= _schemaVersion) return;
     if (version < 1) _migrateV1();
     if (version < 2) _migrateV2();
+    if (version < 3) _migrateV3();
     _db.execute('PRAGMA user_version = $_schemaVersion');
   }
 
@@ -188,6 +189,22 @@ class SortioDb {
     }
   }
 
+  /// v3: content hash per file (duplicate finder) and learned habits.
+  void _migrateV3() {
+    final columns = _db.select('PRAGMA table_info(files)').map((r) => r['name']);
+    if (!columns.contains('hash')) {
+      _db.execute('ALTER TABLE files ADD COLUMN hash TEXT');
+    }
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS habits (
+        key     TEXT NOT NULL,   -- "ext:.pdf" or "issuer:meralco"
+        folder  TEXT NOT NULL,   -- relative to the allowed folder
+        count   INTEGER NOT NULL,
+        PRIMARY KEY (key, folder)
+      );
+    ''');
+  }
+
   // --- File index ------------------------------------------------------------
 
   /// path → (size, mtimeMs) for every indexed file.
@@ -203,7 +220,7 @@ class SortioDb {
       INSERT INTO files (path, name, size, mtime) VALUES (?, ?, ?, ?)
       ON CONFLICT(path) DO UPDATE SET
         size = excluded.size, mtime = excluded.mtime,
-        ocr_text = NULL, ai_name = NULL
+        ocr_text = NULL, ai_name = NULL, hash = NULL
     ''');
     try {
       transaction(() {
@@ -269,10 +286,47 @@ class SortioDb {
   /// the action history. Files on disk and settings are not touched.
   void wipe() => transaction(() {
         _db.execute('DELETE FROM actions');
+        _db.execute('DELETE FROM habits');
         _db.execute('DELETE FROM chat_messages');
         _db.execute('DELETE FROM chats');
         _db.execute('UPDATE files SET ocr_text = NULL, ai_name = NULL');
       });
+
+  String? fileHash(String path) {
+    final rows = _db.select('SELECT hash FROM files WHERE path = ?', [path]);
+    return rows.isEmpty ? null : rows.first['hash'] as String?;
+  }
+
+  void saveFileHash(String path, String hash) =>
+      _db.execute('UPDATE files SET hash = ? WHERE path = ?', [hash, path]);
+
+  /// Forget AI names (e.g. after the naming template changed).
+  void clearAiNames() => _db.execute('UPDATE files SET ai_name = NULL');
+
+  // --- Learned habits ----------------------------------------------------------
+
+  void recordHabit(String key, String folder) => _db.execute(
+        'INSERT INTO habits (key, folder, count) VALUES (?, ?, 1) '
+        'ON CONFLICT(key, folder) DO UPDATE SET count = count + 1',
+        [key, folder],
+      );
+
+  /// The folder most often chosen for [key], once chosen at least [minCount]
+  /// times.
+  String? habitFolder(String key, {int minCount = 2}) {
+    final rows = _db.select(
+      'SELECT folder FROM habits WHERE key = ? AND count >= ? '
+      'ORDER BY count DESC LIMIT 1',
+      [key, minCount],
+    );
+    return rows.isEmpty ? null : rows.first['folder'] as String;
+  }
+
+  /// All learned habits, strongest first (for "what did you learn?").
+  List<(String key, String folder, int count)> habits() => [
+        for (final r in _db.select('SELECT * FROM habits ORDER BY count DESC'))
+          (r['key'] as String, r['folder'] as String, r['count'] as int),
+      ];
 
   void saveAiName(String path, String aiName) =>
       _db.execute('UPDATE files SET ai_name = ? WHERE path = ?', [aiName, path]);

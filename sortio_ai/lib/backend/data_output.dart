@@ -64,6 +64,35 @@ abstract final class SortioData {
   static String lowConfidenceReason(int percent, int threshold) =>
       'Only $percent% sure (your setting asks for $threshold%). Check it before approving.';
 
+  /// Replies for the duplicate finder.
+  static String duplicatesReply(int count) => count == 0
+      ? 'No duplicate files in your allowed folders. Everything is one of a kind.'
+      : 'Found $count exact duplicate${count == 1 ? '' : 's'}. I will hold the extra '
+          'copies in Quarantine (never deleted), approve each one below:';
+
+  /// Replies for the naming template command.
+  static String templateSet(String template, String example) =>
+      'Done. New scans will be named like "$example" ($template). '
+      'I will re-check your folders with the new style.';
+  static const String templateHelp =
+      'Tell me a naming template using {date}, {issuer} and {type}, for example: '
+      'naming template {issuer}_{type}_{date}';
+
+  /// "What did you learn?" reply.
+  static String habitsReply(List<String> lines) => lines.isEmpty
+      ? 'Nothing learned yet. After you approve a couple of files into the same '
+          'folder, I will start suggesting it on my own.'
+      : 'Here is what I learned from your approvals:\n${lines.map((l) => '• $l').join('\n')}';
+
+  /// Camera ("Scan a document") replies.
+  static const String cameraUserLine = 'Scanned a document with the camera';
+  static const String cameraNotDocument =
+      'That photo does not look like a document, so I left it where it is.';
+  static const String cameraDocument =
+      'Got it, that is a document. Here is where I would file it:';
+  static const String cameraUnavailable =
+      'The camera is not available right now. You can also save a photo and ask me to tidy.';
+
   /// Prefix the engine uses for suggestions made by a house rule.
   static const String houseRulePrefix = 'Your rule:';
 

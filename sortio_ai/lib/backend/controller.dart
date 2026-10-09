@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -147,6 +148,8 @@ class SortioController extends ChangeNotifier {
       _engine = core.LocalSortioCore(dataDir: dataDir);
       _loadChats();
       _loadRules();
+      namingTemplate =
+          _engine!.db.setting(_templateKey) ?? core.NameBuilder.defaultTemplate;
       _ocr = OcrService(tempDir: (await getTemporaryDirectory()).path);
       _modelReady = _prepareModel(dataDir);
       _offlineSub = _engine!.isOffline.listen(_onRealOffline);
@@ -243,7 +246,9 @@ class SortioController extends ChangeNotifier {
       badge: insights?.sensitiveBadge,
       extractLabel: hasExtract ? insights!.amountLabel : null,
       extractValue: hasExtract ? insights!.amountValue : null,
-      reason: quarantine || s.reason.startsWith(SortioData.houseRulePrefix)
+      reason: quarantine ||
+              s.reason.startsWith(SortioData.houseRulePrefix) ||
+              s.reason.contains(core.LocalSortioCore.learnedPrefix)
           ? s.reason
           : unsure
           ? SortioData.lowConfidenceReason(percent, threshold)
@@ -326,6 +331,10 @@ class SortioController extends ChangeNotifier {
   // --- House rules -----------------------------------------------------------
 
   static const _rulesKey = 'house_rules';
+  static const _templateKey = 'name_template';
+
+  /// How AI names are built, e.g. "{date}_{issuer}_{type}". Saved on device.
+  String namingTemplate = core.NameBuilder.defaultTemplate;
   static const _welcomeKey = 'welcome_shown';
   Timer? _rulesTimer;
 
@@ -435,7 +444,7 @@ class SortioController extends ChangeNotifier {
       if (llm == null) return;
       await for (final named in engine.aiRename(
         scans,
-        core.RenameService(llm),
+        core.RenameService(llm, names: core.NameBuilder(template: namingTemplate)),
       )) {
         if (stale()) return;
         _replaceCard(named);
@@ -451,14 +460,15 @@ class SortioController extends ChangeNotifier {
     }
   }
 
-  Future<void> _rescan() async {
+  Future<void> _rescan({bool Function(core.Suggestion s)? only}) async {
     final engine = _engine;
     if (engine == null) return;
     scanning = true;
     final generation = ++_scanGeneration;
     _notify();
     engine.photoRoots = _photoRoots;
-    final found = await engine.scan(_allowedRoots);
+    final scanned = await engine.scan(_allowedRoots);
+    final found = only == null ? scanned : scanned.where(only).toList();
     if (_disposed || generation != _scanGeneration) return;
     suggestions.clear();
     _engineById.clear();
@@ -745,6 +755,35 @@ class SortioController extends ChangeNotifier {
     _notify();
   }
 
+  static final _duplicateIntent = RegExp(
+    r'\b(duplicates?|dupes?|copies|doble|dobleng|kapareho)\b',
+    caseSensitive: false,
+  );
+  static final _templateIntent = RegExp(
+    r'(?:naming|name|file\s*name)\s*(?:template|format|style|pattern)\s*(?:to|:|=|as)?\s*(.*)$',
+    caseSensitive: false,
+  );
+  static final _learnedIntent = RegExp(
+    r'\b(what did you learn|what have you learned|habits|natutunan)\b',
+    caseSensitive: false,
+  );
+
+  /// Validates and saves a naming template; AI names are rebuilt with it.
+  Future<String> _setNamingTemplate(String template) async {
+    final engine = _engine;
+    if (engine == null) return SortioData.templateHelp;
+    final example = core.NameBuilder(template: template)
+        .build(date: '2026-03', issuer: 'Meralco', type: 'Bill', extension: '.pdf');
+    if (!template.contains('{') || example == null || example == 'Bill.pdf') {
+      return SortioData.templateHelp;
+    }
+    namingTemplate = template;
+    engine.db.saveSetting(_templateKey, template);
+    engine.db.clearAiNames();
+    unawaited(_rescan());
+    return SortioData.templateSet(template, example);
+  }
+
   static final _tidyIntent = RegExp(
     r'\b(tidy|organi[sz]e|clean|sort|scan|ayusin|ayos|linisin|i-?organize)\b',
     caseSensitive: false,
@@ -798,6 +837,19 @@ class SortioController extends ChangeNotifier {
       reply = SortioData.agentReply(visibleFolderNames);
     } else if (visibleFolderNames.isEmpty) {
       reply = SortioData.agentReply(visibleFolderNames);
+    } else if (_duplicateIntent.hasMatch(text)) {
+      _cardsSessionId = session.id;
+      await _rescan(
+        only: (s) => s.reason.startsWith(core.LocalSortioCore.duplicatePrefix),
+      );
+      reply = SortioData.duplicatesReply(suggestions.length);
+    } else if (_templateIntent.hasMatch(text)) {
+      reply = await _setNamingTemplate(_templateIntent.firstMatch(text)![1]!.trim());
+    } else if (_learnedIntent.hasMatch(text)) {
+      reply = SortioData.habitsReply([
+        for (final (key, folder, count) in engine.db.habits().take(8))
+          '${key.startsWith('issuer:') ? key.substring(7) : '${key.substring(4)} files'} → $folder ($count×)',
+      ]);
     } else if (_tidyIntent.hasMatch(text)) {
       _cardsSessionId = session.id; // this chat's scan owns the cards now
       await _rescan();
@@ -870,9 +922,99 @@ class SortioController extends ChangeNotifier {
     _notify();
   }
 
-  void onAttachTapped() => _toast(
-    'Scan or upload a file: Sortio reads it on-device. Nothing is uploaded.',
-  );
+  /// "+" in the composer: take a photo of a document, read it on-device,
+  /// and propose where to file it (named by the on-device AI). Like every
+  /// suggestion, nothing moves until the user approves.
+  Future<void> onAttachTapped() async {
+    final engine = _engine;
+    final ocr = _ocr;
+    if (engine == null || ocr == null) {
+      _toast('Scan or upload a file: Sortio reads it on-device. Nothing is uploaded.');
+      return;
+    }
+    final XFile? shot;
+    try {
+      shot = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 90);
+    } on Object catch (e) {
+      debugPrint('Camera failed: $e');
+      _toast(SortioData.cameraUnavailable);
+      return;
+    }
+    if (shot == null || _disposed) return; // user cancelled
+
+    // Keep the photo where photos live (or Downloads if Photos is off).
+    final photosOn = _folders['photos']?.allowed ?? false;
+    final dir = p.join(SortioData.storageRoot, photosOn ? 'DCIM/Camera' : 'Download');
+    await Directory(dir).create(recursive: true);
+    final t = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final name = 'SORTIO_${t.year}${two(t.month)}${two(t.day)}_'
+        '${two(t.hour)}${two(t.minute)}${two(t.second)}.jpg';
+    final path = p.join(dir, name);
+    await File(shot.path).copy(path);
+
+    // A chat for it: the open one, or a new "Scanned document" chat.
+    var session = activeSession;
+    if (session == null) {
+      session = ChatSession(
+        id: 'chat${t.microsecondsSinceEpoch}',
+        title: 'Scanned document',
+        updatedAt: t,
+      );
+      chatSessions.insert(0, session);
+      activeSession = session;
+    }
+    final userLine = ChatMessage(
+      id: 'u${t.microsecondsSinceEpoch}',
+      isUser: true,
+      text: SortioData.cameraUserLine,
+    );
+    session
+      ..updatedAt = t
+      ..messages.add(userLine);
+    _persistMessage(session, userLine);
+    typing = true;
+    typingSessionId = session.id;
+    _notify();
+
+    var text = '';
+    try {
+      text = await ocr.read(path);
+    } on Object catch (e) {
+      debugPrint('OCR failed for $path: $e');
+    }
+    final suggestion = await engine.suggestForDocument(path);
+    if (suggestion != null) engine.saveOcrText(path, text);
+    final isDocument = suggestion != null && core.RulesEngine.looksLikeDocument(text);
+
+    if (isDocument) {
+      // This chat owns the cards now: just the new document.
+      _cardsSessionId = session.id;
+      ++_scanGeneration;
+      suggestions.clear();
+      _engineById
+        ..clear()
+        ..[suggestion.id] = suggestion;
+      _insightsById
+        ..clear()
+        ..[suggestion.id] = core.ContentInsights.fromText(text);
+      suggestions[suggestion.id] = _toCard(suggestion);
+    }
+    final at = DateTime.now();
+    final reply = ChatMessage(
+      id: 'a${at.microsecondsSinceEpoch}',
+      isUser: false,
+      text: isDocument ? SortioData.cameraDocument : SortioData.cameraNotDocument,
+    );
+    session
+      ..updatedAt = at
+      ..messages.add(reply);
+    _persistMessage(session, reply);
+    typing = false;
+    typingSessionId = null;
+    _notify();
+    if (isDocument) unawaited(_runAi()); // AI name + amount/badge
+  }
 
   void toggleFolder(String key) {
     final f = _folders[key];

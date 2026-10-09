@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
@@ -80,6 +81,7 @@ class LocalSortioCore implements SortioCore {
     await refreshIndex();
     final suggestions = <Suggestion>[];
     final claimed = <String>{};
+    final duplicates = await findDuplicates();
 
     for (final folder in _validator.roots) {
       final dir = Directory(folder);
@@ -89,6 +91,12 @@ class LocalSortioCore implements SortioCore {
         final name = p.basename(entity.path);
         if (RulesEngine.isIgnored(name)) continue;
         final indexed = _db.file(entity.path);
+
+        final original = duplicates[entity.path];
+        if (original != null) {
+          suggestions.add(_duplicateSuggestion(entity.path, folder, original, claimed));
+          continue;
+        }
 
         if (photoRoots.contains(folder)) {
           final photo = _photoSuggestion(entity, folder, indexed, claimed);
@@ -101,9 +109,12 @@ class LocalSortioCore implements SortioCore {
         if (match == null && houseRule == null) continue;
 
         final needsRename = match?.needsRename ?? false;
-        final category = houseRule?.folder ?? match!.category;
         // Reuse a cached AI name so rescans are instant.
         final aiName = needsRename ? indexed?.aiName : null;
+        final learned = houseRule == null
+            ? learnedFolder(aiName ?? name)
+            : null;
+        final category = houseRule?.folder ?? learned ?? match!.category;
         final target =
             uniqueTarget(p.join(folder, category, aiName ?? name), claimed);
         claimed.add(p.canonicalize(target));
@@ -114,10 +125,16 @@ class LocalSortioCore implements SortioCore {
           targetPath: target,
           reason: houseRule != null
               ? 'Your rule: "${houseRule.source}"'
-              : aiName != null
-                  ? 'Named from its content → $category'
-                  : match!.reason,
-          confidence: houseRule != null ? 1.0 : match!.confidence,
+              : learned != null
+                  ? '$learnedPrefix → $category'
+                  : aiName != null
+                      ? 'Named from its content → $category'
+                      : match!.reason,
+          confidence: houseRule != null
+              ? 1.0
+              : learned != null
+                  ? 0.92
+                  : match!.confidence,
           category: category,
           needsRename: needsRename && aiName == null,
           aiNamed: aiName != null,
@@ -186,8 +203,16 @@ class LocalSortioCore implements SortioCore {
       }
 
       claimed.remove(p.canonicalize(s.targetPath));
-      final target =
-          uniqueTarget(p.join(p.dirname(s.targetPath), newName), claimed);
+      // "Meralco files usually go to Bills": an issuer habit picks the folder.
+      final root = _validator.rootOf(s.sourcePath);
+      final issuerHabit = root == null || s.reason.startsWith('Your rule')
+          ? null
+          : _habitFor(issuerKey(newName));
+      final folder = issuerHabit != null
+          ? p.join(root!, issuerHabit)
+          : p.dirname(s.targetPath);
+      final category = issuerHabit ?? s.category;
+      final target = uniqueTarget(p.join(folder, newName), claimed);
       claimed.add(p.canonicalize(target));
 
       yield Suggestion(
@@ -195,12 +220,170 @@ class LocalSortioCore implements SortioCore {
         type: s.type,
         sourcePath: s.sourcePath,
         targetPath: target,
-        reason: s.category == null ? reason : '$reason → ${s.category}',
+        reason: issuerHabit != null
+            ? '$reason · $learnedPrefix → $issuerHabit'
+            : category == null
+                ? reason
+                : '$reason → $category',
         confidence: confidence,
-        category: s.category,
+        category: category,
         aiNamed: true,
       );
     }
+  }
+
+  // --- Duplicates ------------------------------------------------------------
+
+  /// Exact copies across the allowed folders: copy path → the file it
+  /// duplicates. Files are grouped by size first, so only same-size files are
+  /// hashed, and hashes are cached until the file changes. The copy kept is
+  /// one that is already filed in a sub-folder, else the oldest.
+  Future<Map<String, String>> findDuplicates() async {
+    final bySize = <int, List<IndexedFile>>{};
+    for (final f in _db.recentFiles(limit: 100000)) {
+      if (f.size < minDuplicateSize || !_validator.isAllowed(f.path)) continue;
+      if (f.path.contains(quarantineFolderName)) continue;
+      (bySize[f.size] ??= []).add(f);
+    }
+    final copies = <String, String>{};
+    for (final group in bySize.values) {
+      if (group.length < 2) continue;
+      final byHash = <String, List<IndexedFile>>{};
+      for (final f in group) {
+        final hash = await _hashOf(f.path);
+        if (hash != null) (byHash[hash] ??= []).add(f);
+      }
+      for (final same in byHash.values) {
+        if (same.length < 2) continue;
+        same.sort((a, b) {
+          final filedA = _isFiled(a.path) ? 0 : 1;
+          final filedB = _isFiled(b.path) ? 0 : 1;
+          if (filedA != filedB) return filedA - filedB;
+          final age = a.modified.compareTo(b.modified);
+          return age != 0 ? age : a.name.length.compareTo(b.name.length);
+        });
+        for (final copy in same.skip(1)) {
+          copies[copy.path] = same.first.path;
+        }
+      }
+    }
+    return copies;
+  }
+
+  /// In a sub-folder of an allowed folder (already organized).
+  bool _isFiled(String path) {
+    final root = _validator.rootOf(path);
+    return root != null && !p.equals(p.dirname(path), root);
+  }
+
+  Future<String?> _hashOf(String path) async {
+    final cached = _db.fileHash(path);
+    if (cached != null) return cached;
+    try {
+      final hash = _fnv1a64(await File(path).readAsBytes());
+      _db.saveFileHash(path, hash);
+      return hash;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// 64-bit FNV-1a, enough to tell same-size files apart.
+  static String _fnv1a64(Uint8List bytes) {
+    var hash = 0xcbf29ce484222325;
+    const prime = 0x100000001b3;
+    for (final b in bytes) {
+      hash ^= b;
+      hash = (hash * prime) & 0xFFFFFFFFFFFFFFFF;
+    }
+    return hash.toUnsigned(64).toRadixString(16);
+  }
+
+  Suggestion _duplicateSuggestion(
+      String path, String root, String original, Set<String> claimed) {
+    final target = uniqueTarget(
+        p.join(root, quarantineFolderName, p.basename(path)), claimed);
+    claimed.add(p.canonicalize(target));
+    final shown = p.relative(original, from: p.dirname(root));
+    return Suggestion(
+      id: newId(),
+      type: ActionType.move,
+      sourcePath: path,
+      targetPath: target,
+      reason: '$duplicatePrefix $shown. Held in quarantine, not deleted.',
+      confidence: 0.99,
+      category: quarantineFolderName,
+    );
+  }
+
+  static const duplicatePrefix = 'Exact duplicate of';
+
+  /// Tiny files (empty markers, .nomedia) are not worth flagging.
+  static const minDuplicateSize = 1024;
+
+  // --- Learned habits ----------------------------------------------------------
+
+  static const learnedPrefix = 'Learned from your approvals';
+
+  /// "2026-03_Meralco_Statement.pdf" → "issuer:meralco".
+  static String? issuerKey(String fileName) {
+    final m = RegExp(r'^\d{4}-\d{2}_([^_]+)_').firstMatch(fileName);
+    return m == null ? null : 'issuer:${m[1]!.toLowerCase()}';
+  }
+
+  static String extKey(String fileName) =>
+      'ext:${p.extension(fileName).toLowerCase()}';
+
+  String? _habitFor(String? key) => key == null ? null : _db.habitFolder(key);
+
+  /// The folder the user usually picks for this kind of file (issuer first,
+  /// then extension), or null if nothing has been learned yet.
+  String? learnedFolder(String fileName) =>
+      _habitFor(issuerKey(fileName)) ?? _habitFor(extKey(fileName));
+
+  /// Remember where an approved file went (relative to its allowed folder).
+  void _learnFrom(String target) {
+    final root = _validator.rootOf(target);
+    if (root == null) return;
+    final folder = p.relative(p.dirname(target), from: root).replaceAll(r'\', '/');
+    if (folder == '.' || folder.startsWith('Quarantine')) return;
+    final name = p.basename(target);
+    _db.recordHabit(extKey(name), folder);
+    final issuer = issuerKey(name);
+    if (issuer != null) _db.recordHabit(issuer, folder);
+  }
+
+  // --- Single-file suggestion (camera) ---------------------------------------
+
+  /// Suggestion for one new document photo (e.g. just taken with the camera):
+  /// indexes it and proposes `Scans/` (or a house rule / learned folder). The
+  /// caller runs OCR first so the photo counts as a confirmed document.
+  Future<Suggestion?> suggestForDocument(String path) async {
+    final file = File(path);
+    final root = _validator.rootOf(path);
+    if (root == null || !await file.exists()) return null;
+    final stat = await file.stat();
+    if (_db.file(path) == null) {
+      _db.upsertFiles([(path, stat.size, stat.modified.millisecondsSinceEpoch)]);
+    }
+    final indexed = _db.file(path);
+    final name = p.basename(path);
+    final rule = houseRules.match(name, indexed?.ocrText);
+    final learned = rule == null ? learnedFolder(name) : null;
+    final category = rule?.folder ?? learned ?? photoCategory;
+    final target = uniqueTarget(p.join(root, category, name));
+    return Suggestion(
+      id: newId(),
+      type: ActionType.move,
+      sourcePath: path,
+      targetPath: target,
+      reason: rule != null
+          ? 'Your rule: "${rule.source}"'
+          : 'Photo of a document → $category',
+      confidence: rule != null ? 1.0 : 0.85,
+      category: category,
+      needsRename: true,
+    );
   }
 
   /// Photo-folder policy: images from the last [photoWindow] that are (or
@@ -270,6 +453,7 @@ class LocalSortioCore implements SortioCore {
           await moveFile(s.sourcePath, s.targetPath);
           _db.movePath(s.sourcePath, s.targetPath);
           applied.add(_log(batchId, s.type, s.sourcePath, s.targetPath));
+          _learnFrom(s.targetPath);
         }
         claimed.add(p.canonicalize(s.targetPath));
       } on FileSystemException catch (e) {
