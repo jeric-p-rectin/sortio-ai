@@ -1,8 +1,7 @@
 // ============================================================================
 // Sortio AI — frontend/chat_composer.dart
 //
-// The bottom composer: attach (+) button, message input, send button, and the
-// privacy footer line.
+// The bottom composer: attach (+) button, message input and send button.
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -61,6 +60,7 @@ class SortioComposerBar extends StatelessWidget {
                       onChanged: c.setComposerText,
                       onSubmitted: (_) => c.sendMessage(),
                       textInputAction: TextInputAction.send,
+                      textAlign: TextAlign.center,
                       style: const TextStyle(fontSize: 14.5, color: Color(0xFFF1F5F9)),
                       cursorColor: SortioColors.accent,
                       decoration: const InputDecoration(
@@ -78,37 +78,15 @@ class SortioComposerBar extends StatelessWidget {
                   child: Container(
                     width: 44,
                     height: 44,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: SortioColors.accent,
                       shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: SortioColors.accent.withValues(alpha: 0.8),
-                          offset: const Offset(0, 6),
-                          blurRadius: 18,
-                          spreadRadius: -6,
-                        ),
-                      ],
                     ),
                     child: const Icon(Icons.send, size: 19, color: SortioColors.onAccent),
                   ),
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.lock_outline, size: 12, color: SortioColors.textMuted),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  c.footLine,
-                  style: const TextStyle(fontSize: 11, color: SortioColors.textMuted),
-                ),
-              ),
-            ],
           ),
         ],
       ),

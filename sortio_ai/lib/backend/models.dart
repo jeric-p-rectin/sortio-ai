@@ -85,20 +85,39 @@ class FolderAccess {
   FolderAccess toggle() => FolderAccess(key: key, label: label, path: path, allowed: !allowed);
 }
 
-/// A session entry in the drawer.
-class SessionEntry {
-  const SessionEntry({
+/// One saved chat conversation — a row in the History (chats) screen.
+class ChatSession {
+  ChatSession({
     required this.id,
     required this.title,
-    required this.subtitle,
-    required this.tone,
-    required this.section,
-  });
+    required this.updatedAt,
+    List<ChatMessage>? messages,
+  }) : messages = messages ?? <ChatMessage>[];
+
   final String id;
-  final String title;
-  final String subtitle;
-  final SuggestionTone tone;
-  final String section; // 'Current' | 'Recent'
+  String title;
+  DateTime updatedAt;
+  final List<ChatMessage> messages;
+
+  /// The last message, shown as the preview line in the chat list.
+  String get preview => messages.isEmpty ? 'No messages yet' : messages.last.text;
+
+  /// "Just now" | "Today · HH:MM" | "Yesterday" | "Mar 2"
+  String get when {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final now = DateTime.now();
+    if (now.difference(updatedAt) < const Duration(minutes: 1)) return 'Just now';
+    String two(int n) => n.toString().padLeft(2, '0');
+    final days = DateTime(now.year, now.month, now.day)
+        .difference(DateTime(updatedAt.year, updatedAt.month, updatedAt.day))
+        .inDays;
+    if (days <= 0) return 'Today · ${two(updatedAt.hour)}:${two(updatedAt.minute)}';
+    if (days == 1) return 'Yesterday';
+    return '${months[updatedAt.month - 1]} ${updatedAt.day}';
+  }
 }
 
 /// The "Savings Summary" card output.
@@ -107,24 +126,6 @@ class SavingsSummary {
   final int files;
   final int mbFreed;
   final int minutesSaved;
-}
-
-/// One logged action in the History screen.
-class HistoryEntry {
-  const HistoryEntry({
-    required this.id,
-    required this.title,
-    required this.detail,
-    required this.when,
-    required this.tone,
-    required this.chip,
-  });
-  final String id;
-  final String title;
-  final String detail;
-  final String when; // "Today · 10:24" | "Yesterday" | "Mar 2"
-  final SuggestionTone tone;
-  final String chip; // Rename | Quarantine | Cleanup | Search | Sensitive
 }
 
 /// What kind of file a row represents (drives the icon + color).

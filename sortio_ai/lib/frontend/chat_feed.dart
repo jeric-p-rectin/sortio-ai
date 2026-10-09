@@ -1,9 +1,10 @@
 // ============================================================================
 // Sortio AI — frontend/chat_feed.dart
 //
-// The conversation feed: date chip, user/agent bubbles, the scripted opening
-// exchange, the suggestion blocks (card -> collapse -> applied/ignored row),
-// extra conversation, and the typing indicator. Auto-scrolls on new content.
+// The conversation feed: user/agent bubbles of the active chat session, the
+// scripted demo conversation with its suggestion blocks (card -> collapse ->
+// applied/ignored row), a welcome state for brand-new chats, and the typing
+// indicator. Auto-scrolls on new content.
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -26,7 +27,8 @@ class SortioChatFeed extends StatefulWidget {
 
 class _SortioChatFeedState extends State<SortioChatFeed> {
   final ScrollController _scroll = ScrollController();
-  int _lastExtraCount = 0;
+  String? _lastSessionId;
+  int _lastMessageCount = 0;
   bool _lastTyping = false;
   bool _lastAllResolved = false;
 
@@ -46,12 +48,17 @@ class _SortioChatFeedState extends State<SortioChatFeed> {
   }
 
   void _maybeScroll() {
-    final changed = c.extraMessages.length != _lastExtraCount ||
+    final sessionId = c.activeSession?.id;
+    final messageCount = c.activeSession?.messages.length ?? 0;
+    final allResolved = c.isScriptedChat && c.allResolved;
+    final changed = sessionId != _lastSessionId ||
+        messageCount != _lastMessageCount ||
         c.typing != _lastTyping ||
-        c.allResolved != _lastAllResolved;
-    _lastExtraCount = c.extraMessages.length;
+        allResolved != _lastAllResolved;
+    _lastSessionId = sessionId;
+    _lastMessageCount = messageCount;
     _lastTyping = c.typing;
-    _lastAllResolved = c.allResolved;
+    _lastAllResolved = allResolved;
     if (!changed || !_scroll.hasClients) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
@@ -83,33 +90,44 @@ class _SortioChatFeedState extends State<SortioChatFeed> {
       items.add(w);
     }
 
-    // Date chip
-    add(const Align(
-      alignment: Alignment.center,
-      child: _DateChip(),
-    ));
+    final session = c.activeSession;
 
-    // Scripted opening exchange
-    add(const _UserBubble('Find my Meralco bill from March and tidy my recent downloads.'));
-    add(const _AgentBubble('Found your bill and 2 other files. Here are my suggestions:'));
-
-    // Suggestion blocks (card -> collapse -> applied/ignored row)
-    for (final s in c.suggestions.values) {
-      add(_SuggestionBlock(suggestion: s, controller: c));
+    // Brand-new chat: nothing recorded yet — show the welcome state.
+    if (session == null) {
+      items.add(const _NewChatHero());
+      return items;
     }
 
-    // Wrap-up agent line once both cards are resolved
-    if (c.allResolved) {
-      add(_AgentBubble(c.doneLine));
+    final messages = session.messages;
+
+    if (c.isScriptedChat) {
+      // The scripted opening exchange, then its suggestion blocks, then the
+      // rest of the conversation.
+      for (final m in messages.take(2)) {
+        add(m.isUser ? _UserBubble(m.text) : _AgentBubble(m.text));
+      }
+
+      // Suggestion blocks (card -> collapse -> applied/ignored row)
+      for (final s in c.suggestions.values) {
+        add(_SuggestionBlock(suggestion: s, controller: c));
+      }
+
+      // Wrap-up agent line once both cards are resolved
+      if (c.allResolved) {
+        add(_AgentBubble(c.doneLine));
+      }
+
+      for (final m in messages.skip(2)) {
+        add(m.isUser ? _UserBubble(m.text) : _AgentBubble(m.text));
+      }
+    } else {
+      for (final m in messages) {
+        add(m.isUser ? _UserBubble(m.text) : _AgentBubble(m.text));
+      }
     }
 
-    // Extra conversation
-    for (final m in c.extraMessages) {
-      add(m.isUser ? _UserBubble(m.text) : _AgentBubble(m.text));
-    }
-
-    // Typing indicator
-    if (c.typing) {
+    // Typing indicator — only for the conversation waiting on a reply.
+    if (c.typing && c.typingSessionId == session.id) {
       add(const _TypingRow());
     }
 
@@ -117,27 +135,34 @@ class _SortioChatFeedState extends State<SortioChatFeed> {
   }
 }
 
-class _DateChip extends StatelessWidget {
-  const _DateChip();
+/// Welcome state for a brand-new chat, before the first message is sent.
+class _NewChatHero extends StatelessWidget {
+  const _NewChatHero();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: SortioColors.chipBg,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: SortioColors.border),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
+    return Padding(
+      padding: EdgeInsets.only(top: MediaQuery.heightOf(context) * 0.16),
+      child: Column(
         children: [
-          Icon(Icons.crop_free, size: 14, color: SortioColors.accentBright),
-          SizedBox(width: 8),
-          Text(
-            'Today · on-device session',
-            style: TextStyle(fontSize: 11, color: SortioColors.textMuted),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.asset(
+              'assets/images/sortio_logo.png',
+              width: 56,
+              height: 56,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'How can I help you sort your files?',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: SortioColors.textBright,
+            ),
           ),
         ],
       ),
@@ -228,15 +253,14 @@ class _AgentRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: SortioColors.card,
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: SortioColors.borderTile),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: Image.asset(
+            'assets/images/sortio_logo.png',
+            width: 28,
+            height: 28,
+            fit: BoxFit.cover,
           ),
-          child: const Icon(Icons.sort, size: 15, color: SortioColors.accent),
         ),
         const SizedBox(width: 10),
         Flexible(child: child),

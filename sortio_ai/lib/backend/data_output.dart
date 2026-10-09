@@ -10,10 +10,9 @@ import 'models.dart';
 
 abstract final class SortioData {
   static const String appName = 'Sortio AI';
-  static const String onlineModelLine = 'On-device model ready';
-  static const String offlineModelLine = 'Offline · on-device model active';
-  static const String onlineFootLine = 'Private by design · files never leave this phone';
-  static const String offlineFootLine = 'Offline · running 100% on this phone';
+
+  /// The scripted demo conversation — its suggestion cards live in the feed.
+  static const String scriptedChatId = 'demo';
 
   /// The two scripted suggestions that open the session.
   static List<Suggestion> initialSuggestions() => [
@@ -43,90 +42,81 @@ abstract final class SortioData {
         FolderAccess(key: 'documents', label: 'Documents', path: '~/Documents', allowed: documents),
       ];
 
-  static List<SessionEntry> sessions() => const [
-        SessionEntry(
-          id: 'now',
-          title: 'Meralco bill & downloads',
-          subtitle: 'Active now',
-          tone: SuggestionTone.cyan,
-          section: 'Current',
-        ),
-        SessionEntry(
-          id: 'tax',
-          title: 'Tax Prep 2026',
-          subtitle: 'Receipts & invoices',
-          tone: SuggestionTone.cyan,
-          section: 'Recent',
-        ),
-        SessionEntry(
-          id: 'weekly',
-          title: 'Weekly Downloads Tidy-up',
-          subtitle: 'Repeats every Sunday',
-          tone: SuggestionTone.cyan,
-          section: 'Recent',
-        ),
-        SessionEntry(
-          id: 'ids',
-          title: 'ID Scans',
-          subtitle: 'Sensitive · extra confirmation',
-          tone: SuggestionTone.amber,
-          section: 'Recent',
-        ),
-      ];
-
   static const SavingsSummary savings = SavingsSummary(files: 45, mbFreed: 200, minutesSaved: 15);
 
-  /// The on-device action log shown in the History screen (newest first).
-  static List<HistoryEntry> history() => const [
-        HistoryEntry(
-          id: 'h1',
-          title: 'Renamed & moved a PDF',
-          detail: 'IMG_2043.pdf → Documents/Invoices/2026-03_Meralco_Invoice.pdf',
-          when: 'Today · 10:24',
-          tone: SuggestionTone.cyan,
-          chip: 'Rename',
-        ),
-        HistoryEntry(
-          id: 'h2',
-          title: 'Quarantined an installer',
-          detail: 'setup_v2.exe → Quarantine/holding_bin/',
-          when: 'Today · 10:24',
-          tone: SuggestionTone.amber,
-          chip: 'Quarantine',
-        ),
-        HistoryEntry(
-          id: 'h3',
-          title: 'Organized 45 files',
-          detail: 'Downloads tidy-up · 200 MB freed · 15 min saved',
-          when: 'Yesterday',
-          tone: SuggestionTone.cyan,
-          chip: 'Cleanup',
-        ),
-        HistoryEntry(
-          id: 'h4',
-          title: 'Found "invoice from March"',
-          detail: 'Plain-language search · 3 results in 0.4s, on-device',
-          when: 'Yesterday',
-          tone: SuggestionTone.cyan,
-          chip: 'Search',
-        ),
-        HistoryEntry(
-          id: 'h5',
-          title: 'ID scan filed with extra confirmation',
-          detail: 'PhilID_2026.jpg → Documents/IDs/',
-          when: 'Mar 2',
-          tone: SuggestionTone.amber,
-          chip: 'Sensitive',
-        ),
-        HistoryEntry(
-          id: 'h6',
-          title: 'Wiped AI memory & logs',
-          detail: 'Learned patterns, chat history and action logs cleared',
-          when: 'Feb 24',
-          tone: SuggestionTone.amber,
-          chip: 'Danger Zone',
-        ),
-      ];
+  /// The chat history shown in the History (chats) screen, newest first. The
+  /// scripted demo conversation is seeded first; every chat the user starts is
+  /// inserted at the top of this list by the controller.
+  static List<ChatSession> chatSessions() {
+    final now = DateTime.now();
+    return [
+      ChatSession(
+        id: scriptedChatId,
+        title: 'Meralco bill & downloads',
+        updatedAt: now.subtract(const Duration(hours: 2)),
+        messages: const [
+          ChatMessage(
+            id: 'm1',
+            isUser: true,
+            text: 'Find my Meralco bill from March and tidy my recent downloads.',
+          ),
+          ChatMessage(
+            id: 'm2',
+            isUser: false,
+            text: 'Found your bill and 2 other files. Here are my suggestions:',
+          ),
+        ],
+      ),
+      ChatSession(
+        id: 'ch-receipts',
+        title: 'March receipts for taxes',
+        updatedAt: now.subtract(const Duration(hours: 5)),
+        messages: const [
+          ChatMessage(id: 'm1', isUser: true, text: 'Find every receipt from March for my taxes.'),
+          ChatMessage(
+            id: 'm2',
+            isUser: false,
+            text: 'Found 4 receipts in Downloads and Screenshots, from March 2 to March 28. '
+                'Want me to copy them into Documents/Receipts/2026-03/?',
+          ),
+          ChatMessage(id: 'm3', isUser: true, text: 'Yes, copy all of them there.'),
+          ChatMessage(
+            id: 'm4',
+            isUser: false,
+            text: 'Done: 4 receipts copied. Nothing was moved, so the originals are untouched.',
+          ),
+        ],
+      ),
+      ChatSession(
+        id: 'ch-weekly',
+        title: 'Weekly Downloads tidy-up',
+        updatedAt: now.subtract(const Duration(days: 1, hours: 3)),
+        messages: const [
+          ChatMessage(id: 'm1', isUser: true, text: 'Tidy my Downloads folder.'),
+          ChatMessage(
+            id: 'm2',
+            isUser: false,
+            text: 'Planned 12 moves and 3 renames — every one reversible. '
+                'Approve what you like; nothing moves until you do.',
+          ),
+        ],
+      ),
+      ChatSession(
+        id: 'ch-passport',
+        title: 'Where is my passport scan?',
+        updatedAt: now.subtract(const Duration(days: 3)),
+        messages: const [
+          ChatMessage(id: 'm1', isUser: true, text: 'Where did I put my passport scan?'),
+          ChatMessage(
+            id: 'm2',
+            isUser: false,
+            text: 'It is in Documents/IDs/Passport_2025.pdf, filed there on Feb 28 '
+                'with extra confirmation because it is a sensitive ID.',
+          ),
+        ],
+      ),
+    ];
+  }
 
   /// Files shown in the File Manager screen, grouped by folder key.
   static List<FileItem> files() => const [

@@ -31,7 +31,17 @@ enum StartPanel { none, settings }
 
 class SortioController extends ChangeNotifier {
   SortioController() {
+    _seedChats();
     unawaited(_init());
+  }
+
+  /// Seeds the chat history with the scripted demo conversation and a few
+  /// past chats; the demo chat is the one open in the chat screen.
+  void _seedChats() {
+    chatSessions
+      ..clear()
+      ..addAll(SortioData.chatSessions());
+    activeSession = chatSessions.isEmpty ? null : chatSessions.first;
   }
 
   // --- Core state -----------------------------------------------------------
@@ -54,8 +64,19 @@ class SortioController extends ChangeNotifier {
   String rules = '';
   bool armed = false;
 
-  final List<ChatMessage> extraMessages = <ChatMessage>[];
+  /// All chats, newest first — drives the History (chats) screen.
+  final List<ChatSession> chatSessions = <ChatSession>[];
+
+  /// The conversation currently open in the chat screen. Null while a brand
+  /// new chat has no messages yet (the feed shows a welcome state).
+  ChatSession? activeSession;
+
+  /// True while the scripted demo conversation is the one on screen — its
+  /// suggestion cards belong to that conversation only.
+  bool get isScriptedChat => activeSession?.id == SortioData.scriptedChatId;
+
   bool typing = false;
+  String? typingSessionId;
   String composerText = '';
 
   /// True while the engine is scanning (no "done" line yet).
@@ -204,9 +225,6 @@ class SortioController extends ChangeNotifier {
   int get appliedCount => suggestions.values.where((s) => s.state == SuggestionState.applied).length;
   String get doneLine => SortioData.doneLine(appliedCount, suggestions.length);
 
-  String get modelLine => offline ? SortioData.offlineModelLine : SortioData.onlineModelLine;
-  String get footLine => offline ? SortioData.offlineFootLine : SortioData.onlineFootLine;
-
   ({String label, String hint, String mode, int threshold}) get strictOutput =>
       SortioData.strictness(strictness);
 
@@ -314,15 +332,39 @@ class SortioController extends ChangeNotifier {
     caseSensitive: false,
   );
 
+  /// The chat list title for a new conversation: its first message.
+  static String _titleFor(String text) {
+    final t = text.replaceAll('\n', ' ').trim();
+    return t.length > 48 ? '${t.substring(0, 48)}…' : t;
+  }
+
   Future<void> sendMessage() async {
     final text = composerText.trim();
     if (text.isEmpty) {
       _toast(SortioData.emptyMessageHint);
       return;
     }
-    extraMessages.add(ChatMessage(id: 'u${DateTime.now().microsecondsSinceEpoch}', isUser: true, text: text));
+
+    var session = activeSession;
+    if (session == null) {
+      // First message of a brand-new chat: create its session and put it at
+      // the top of the history.
+      session = ChatSession(
+        id: 'chat${DateTime.now().microsecondsSinceEpoch}',
+        title: _titleFor(text),
+        updatedAt: DateTime.now(),
+      );
+      chatSessions.insert(0, session);
+      activeSession = session;
+    }
+
+    final sentAt = DateTime.now();
+    session
+      ..updatedAt = sentAt
+      ..messages.add(ChatMessage(id: 'u${sentAt.microsecondsSinceEpoch}', isUser: true, text: text));
     composerText = '';
     typing = true;
+    typingSessionId = session.id;
     _notify();
 
     final engine = _engine;
@@ -344,12 +386,36 @@ class SortioController extends ChangeNotifier {
     }
     if (_disposed) return;
 
+    final at = DateTime.now();
+    session
+      ..updatedAt = at
+      ..messages.add(ChatMessage(
+        id: 'a${at.microsecondsSinceEpoch}',
+        isUser: false,
+        text: reply,
+      ));
     typing = false;
-    extraMessages.add(ChatMessage(
-      id: 'a${DateTime.now().microsecondsSinceEpoch}',
-      isUser: false,
-      text: reply,
-    ));
+    typingSessionId = null;
+    _notify();
+  }
+
+  /// Opens a conversation from the History (chats) list.
+  void openSession(String id) {
+    for (final s in chatSessions) {
+      if (s.id == id) {
+        activeSession = s;
+        _notify();
+        return;
+      }
+    }
+  }
+
+  /// Starts a fresh chat: the feed shows a welcome state and the first
+  /// message creates a new session in the history.
+  void startNewChat() {
+    activeSession = null;
+    typing = false;
+    typingSessionId = null;
     _notify();
   }
 
