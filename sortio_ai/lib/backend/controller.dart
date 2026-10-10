@@ -1131,7 +1131,7 @@ class SortioController extends ChangeNotifier {
     _notify();
   }
 
-  /// "+" in the composer: take a photo of a document, read it on-device,
+  /// Camera button in the composer: take a photo of a document, read it on-device,
   /// and propose where to file it (named by the on-device AI). Like every
   /// suggestion, nothing moves until the user approves.
   Future<void> onAttachTapped() async {

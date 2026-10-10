@@ -5,6 +5,7 @@
 // row here; tapping one reopens it in the chat screen.
 // ============================================================================
 
+import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
@@ -170,6 +171,11 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> with SingleTickerProvide
   static const double _gap = 10;
   static const double _openExtent = _actionWidth + _gap;
 
+  /// While the card is being dragged, the red layer reaches this far under it
+  /// (hidden by the card), so no page background shows through the card's
+  /// rounded corners: it reads as one layer sliding over another.
+  static const double _tuck = 20;
+
   /// Releasing a drag past this fraction of the card's width deletes it.
   static const double _fullSwipe = 0.55;
 
@@ -309,50 +315,95 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> with SingleTickerProvide
   }
 
   Widget _stack(double width, double dx) {
-    // Trash area: a 64 px button that grows to fill the whole row as the card
-    // is pulled past the open position toward a full swipe.
-    final reveal = (-dx).clamp(0.0, width).toDouble();
-    final pastOpen = width <= _openExtent
-        ? 0.0
-        : ((reveal - _openExtent) / (width - _openExtent)).clamp(0.0, 1.0).toDouble();
-    final buttonWidth = _actionWidth + (width - _actionWidth) * pastOpen;
+    // r = how much of the row the card has uncovered on the right.
+    final r = (-dx).clamp(0.0, width).toDouble();
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        // Trash button, revealed behind the card as it slides left.
-        Positioned(
-          top: 0,
-          bottom: 0,
-          right: 0,
-          width: buttonWidth,
-          child: SortioPressScale(
-            onTap: () => _dismiss(_Exit.fade),
-            child: Container(
-              decoration: BoxDecoration(
-                color: SortioColors.redArm,
-                borderRadius: BorderRadius.circular(16),
+    // While the finger is down (or the card is leaving) the red layer sits
+    // flush under the card, like a layer being opened. Once the card rests
+    // half-open, the layer separates into a button with a gap.
+    final separated = !_dragging && _exit != _Exit.slide && _dx <= -1;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: separated ? 1.0 : 0.0),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      builder: (context, gapT, _) {
+        final gap = _gap * gapT;
+        final tuck = math.min(_tuck, r) * (1 - gapT);
+        final visibleLeft = width - r + gap;
+        final left = math.max(0.0, visibleLeft - tuck);
+        // The icon sits in a 64 px slot at the right; once the card is pulled
+        // past the open position it trails the card's edge.
+        final iconCenter = math.min(visibleLeft + _actionWidth / 2, width - _actionWidth / 2);
+        final iconOpacity = (r / 28).clamp(0.0, 1.0).toDouble();
+        final shadowT = (r / 24).clamp(0.0, 1.0).toDouble();
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // Red trash layer, underneath the card.
+            Positioned(
+              top: 0,
+              bottom: 0,
+              left: left,
+              right: 0,
+              child: SortioPressScale(
+                onTap: () => _dismiss(_Exit.fade),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: SortioColors.redArm,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        left: iconCenter - left - 11,
+                        top: 0,
+                        bottom: 0,
+                        width: 22,
+                        child: Opacity(
+                          opacity: iconOpacity,
+                          child: const Center(
+                            child: Icon(Icons.delete_outline, size: 22, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.only(left: (_actionWidth - 22) / 2),
-              child: const Icon(Icons.delete_outline, size: 22, color: Colors.white),
             ),
-          ),
-        ),
-        Transform.translate(
-          offset: Offset(dx, 0),
-          child: _exit != _Exit.none
-              ? IgnorePointer(child: widget.child)
-              : _dx == 0
-                  ? widget.child
-                  // While open, a tap on the card just closes it.
-                  : GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _close,
-                      child: AbsorbPointer(child: widget.child),
+            // The card, on top. Its soft shadow falls on the red layer.
+            Transform.translate(
+              offset: Offset(dx, 0),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.32 * shadowT),
+                      blurRadius: 12,
+                      spreadRadius: -3,
+                      offset: const Offset(6, 0),
                     ),
-        ),
-      ],
+                  ],
+                ),
+                child: _exit != _Exit.none
+                    ? IgnorePointer(child: widget.child)
+                    : _dx == 0
+                        ? widget.child
+                        // While open, a tap on the card just closes it.
+                        : GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _close,
+                            child: AbsorbPointer(child: widget.child),
+                          ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

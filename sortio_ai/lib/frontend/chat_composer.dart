@@ -51,7 +51,7 @@ class SortioComposerBar extends StatelessWidget {
                       shape: BoxShape.circle,
                       border: Border.all(color: SortioColors.borderTile),
                     ),
-                    child: Icon(Icons.add, size: 20, color: SortioColors.textBody),
+                    child: Icon(Icons.photo_camera_outlined, size: 20, color: SortioColors.textBody),
                   ),
                 ),
                 const SizedBox(width: 16),

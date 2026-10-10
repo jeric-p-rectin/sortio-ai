@@ -62,8 +62,10 @@ class _SortioChatFeedState extends State<SortioChatFeed> {
     if (!changed || !_scroll.hasClients) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
+      // The feed is reversed (offset 0 = the newest message at the bottom).
+      if (_scroll.offset <= 0) return;
       _scroll.animateTo(
-        _scroll.position.maxScrollExtent,
+        0,
         duration: const Duration(milliseconds: 250),
         curve: SortioMotion.slideIn,
       );
@@ -72,13 +74,28 @@ class _SortioChatFeedState extends State<SortioChatFeed> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: _buildItems(context),
-      ),
+    // Reversed scroll view: the bottom of the conversation is the anchor, so
+    // when the keyboard opens and the viewport shrinks, the messages ride up
+    // with it frame by frame instead of being hidden behind the composer.
+    // The ConstrainedBox keeps short chats (and the welcome hero) at the top.
+    const vPad = 16.0 + 24.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          controller: _scroll,
+          reverse: true,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: (constraints.maxHeight - vPad).clamp(0.0, double.infinity),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _buildItems(context),
+            ),
+          ),
+        );
+      },
     );
   }
 
