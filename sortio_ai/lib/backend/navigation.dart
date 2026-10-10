@@ -12,7 +12,7 @@ import 'package:flutter/material.dart';
 enum SortioTab { home, history, chat, files, settings }
 
 class SortioNavigationController extends ChangeNotifier {
-  SortioNavigationController({SortioTab initialTab = SortioTab.chat}) : _tab = initialTab;
+  SortioNavigationController({SortioTab initialTab = SortioTab.home}) : _tab = initialTab;
 
   SortioTab _tab;
   SortioTab get tab => _tab;
