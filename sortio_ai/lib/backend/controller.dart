@@ -17,13 +17,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
-import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'data_output.dart';
-import 'design_tokens.dart';
-import 'llm/llamadart_client.dart';
 import 'models.dart';
 import 'motion.dart';
 import 'platform/model_store.dart';
@@ -70,19 +67,6 @@ class SortioController extends ChangeNotifier {
   // --- Appearance ------------------------------------------------------------
   /// True while the dark palette is active (the app's original look).
   bool darkMode = true;
-
-  // --- AI strictness & house rules -------------------------------------------
-  /// How sure the AI must be before a suggestion counts as a recommendation:
-  /// 0.0 (lenient) to 1.0 (strict). Less-sure cards stay amber questions.
-  double strictness = 0.5;
-
-  /// The user's plain-language house rules ("Always file Zoom receipts under
-  /// Finance"), parsed by the engine.
-  String rules = '';
-
-  /// Minimum confidence, in percent, derived from [strictness] (50% to 90%).
-  ({int threshold}) get strictOutput =>
-      (threshold: (50 + strictness.clamp(0.0, 1.0) * 40).round());
 
   /// All chats, newest first — drives the History (chats) screen.
   final List<ChatSession> chatSessions = <ChatSession>[];
@@ -148,14 +132,6 @@ class SortioController extends ChangeNotifier {
       _engine = core.LocalSortioCore(dataDir: dataDir);
       _loadChats();
       _loadRules();
-      final savedTemplate = _engine!.db.setting(_templateKey);
-      if (savedTemplate == null || _isValidTemplate(savedTemplate)) {
-        namingTemplate = savedTemplate ?? core.NameBuilder.defaultTemplate;
-      } else {
-        // A broken template from an older build: reset it and rebuild names.
-        _engine!.db.saveSetting(_templateKey, core.NameBuilder.defaultTemplate);
-        _engine!.db.clearAiNames();
-      }
       _ocr = OcrService(tempDir: (await getTemporaryDirectory()).path);
       _modelReady = _prepareModel(dataDir);
       _offlineSub = _engine!.isOffline.listen(_onRealOffline);
@@ -252,9 +228,7 @@ class SortioController extends ChangeNotifier {
       badge: insights?.sensitiveBadge,
       extractLabel: hasExtract ? insights!.amountLabel : null,
       extractValue: hasExtract ? insights!.amountValue : null,
-      reason: quarantine ||
-              s.reason.startsWith(SortioData.houseRulePrefix) ||
-              s.reason.contains(core.LocalSortioCore.learnedPrefix)
+      reason: quarantine || s.reason.startsWith(SortioData.houseRulePrefix)
           ? s.reason
           : unsure
           ? SortioData.lowConfidenceReason(percent, threshold)
@@ -290,8 +264,7 @@ class SortioController extends ChangeNotifier {
             ],
           ),
       ]);
-    final firstLaunch = engine.db.setting(_welcomeKey) == null;
-    if (firstLaunch && !chatSessions.any((c) => c.id == SortioData.scriptedChatId)) {
+    if (!chatSessions.any((c) => c.id == SortioData.scriptedChatId)) {
       final welcome = ChatSession(
         id: SortioData.scriptedChatId,
         title: SortioData.welcomeTitle,
@@ -305,15 +278,12 @@ class SortioController extends ChangeNotifier {
       for (final m in welcome.messages) {
         _persistMessage(welcome, m);
       }
-      engine.db.saveSetting(_welcomeKey, '1');
     }
     _cardsSessionId = SortioData.scriptedChatId;
-    activeSession = chatSessions.isEmpty
-        ? null // brand-new chat welcome state
-        : chatSessions.firstWhere(
-            (c) => c.id == SortioData.scriptedChatId,
-            orElse: () => chatSessions.first,
-          );
+    activeSession = chatSessions.firstWhere(
+      (c) => c.id == SortioData.scriptedChatId,
+      orElse: () => chatSessions.first,
+    );
     SortioData.liveChats = chatSessions; // same list: Home sees new chats too
     _notify();
   }
@@ -337,11 +307,6 @@ class SortioController extends ChangeNotifier {
   // --- House rules -----------------------------------------------------------
 
   static const _rulesKey = 'house_rules';
-  static const _templateKey = 'name_template';
-
-  /// How AI names are built, e.g. "{date}_{issuer}_{type}". Saved on device.
-  String namingTemplate = core.NameBuilder.defaultTemplate;
-  static const _welcomeKey = 'welcome_shown';
   Timer? _rulesTimer;
 
   void _loadRules() {
@@ -450,7 +415,7 @@ class SortioController extends ChangeNotifier {
       if (llm == null) return;
       await for (final named in engine.aiRename(
         scans,
-        core.RenameService(llm, names: core.NameBuilder(template: namingTemplate)),
+        core.RenameService(llm),
       )) {
         if (stale()) return;
         _replaceCard(named);
@@ -466,15 +431,14 @@ class SortioController extends ChangeNotifier {
     }
   }
 
-  Future<void> _rescan({bool Function(core.Suggestion s)? only}) async {
+  Future<void> _rescan() async {
     final engine = _engine;
     if (engine == null) return;
     scanning = true;
     final generation = ++_scanGeneration;
     _notify();
     engine.photoRoots = _photoRoots;
-    final scanned = await engine.scan(_allowedRoots);
-    final found = only == null ? scanned : scanned.where(only).toList();
+    final found = await engine.scan(_allowedRoots);
     if (_disposed || generation != _scanGeneration) return;
     suggestions.clear();
     _engineById.clear();
@@ -761,40 +725,6 @@ class SortioController extends ChangeNotifier {
     _notify();
   }
 
-  static final _duplicateIntent = RegExp(
-    r'\b(duplicates?|dupes?|copies|doble|dobleng|kapareho)\b',
-    caseSensitive: false,
-  );
-  static final _templateIntent = RegExp(
-    r'(?:naming|name|file\s*name)\s*(?:template|format|style|pattern)\s*(?:to|:|=|as)?\s*(.*)$',
-    caseSensitive: false,
-  );
-  static final _learnedIntent = RegExp(
-    r'\b(what did you learn|what have you learned|habits|natutunan)\b',
-    caseSensitive: false,
-  );
-
-  /// Only {date}, {issuer} and {type} placeholders, every brace closed.
-  static bool _isValidTemplate(String template) =>
-      template.contains('{') &&
-      RegExp(r'^(?:[^{}]|\{(?:date|issuer|type)\})+$').hasMatch(template);
-
-  /// Validates and saves a naming template; AI names are rebuilt with it.
-  Future<String> _setNamingTemplate(String template) async {
-    final engine = _engine;
-    if (engine == null) return SortioData.templateHelp;
-    final example = core.NameBuilder(template: template)
-        .build(date: '2026-03', issuer: 'Meralco', type: 'Bill', extension: '.pdf');
-    if (!_isValidTemplate(template) || example == null || example == 'Bill.pdf') {
-      return SortioData.templateHelp;
-    }
-    namingTemplate = template;
-    engine.db.saveSetting(_templateKey, template);
-    engine.db.clearAiNames();
-    unawaited(_rescan());
-    return SortioData.templateSet(template, example);
-  }
-
   static final _tidyIntent = RegExp(
     r'\b(tidy|organi[sz]e|clean|sort|scan|ayusin|ayos|linisin|i-?organize)\b',
     caseSensitive: false,
@@ -848,171 +778,13 @@ class SortioController extends ChangeNotifier {
       reply = SortioData.agentReply(visibleFolderNames);
     } else if (visibleFolderNames.isEmpty) {
       reply = SortioData.agentReply(visibleFolderNames);
+    } else if (_tidyIntent.hasMatch(text)) {
+      _cardsSessionId = session.id; // this chat's scan owns the cards now
+      await _rescan();
+      reply = SortioData.scanReply(suggestions.length, visibleFolderNames);
     } else {
-      reply = await _respond(text, session, engine);
-    }
-    if (_disposed) return;
-
-    _finishReply(session, reply);
-  }
-
-  // --- Chat understanding -------------------------------------------------------
-  //
-  // Keywords first (instant, English + Tagalog). When nothing matches, the
-  // on-device model picks the intent from a fixed list (grammar-constrained,
-  // so it cannot invent actions). Search is the last resort.
-
-  static final _undoIntent = RegExp(
-    r'\b(undo|ibalik|bawiin|revert|i-?undo)\b',
-    caseSensitive: false,
-  );
-  static final _approveIntent = RegExp(
-    r"\b(approve|approved|apply|go ahead|sige|tuloy|do it|i-?approve|okay na|ok na|yes|oo)\b",
-    caseSensitive: false,
-  );
-  static final _ignoreIntent = RegExp(
-    r"\b(ignore|skip|reject|huwag|wag na|cancel|no thanks)\b",
-    caseSensitive: false,
-  );
-  static final _searchIntent = RegExp(
-    r'\b(find|search|where|hanapin|hanap|nasaan|asan|saan|look for|show me|locate)\b',
-    caseSensitive: false,
-  );
-  static final _thanksIntent = RegExp(
-    r'\b(thanks|thank you|salamat|ty)\b',
-    caseSensitive: false,
-  );
-  static final _helpIntent = RegExp(
-    r"^\s*(hi|hello|hey|yo|kumusta|musta|good (morning|afternoon|evening))\b|\b(help|tulong|what can you do|ano (ang )?kaya mo|paano)\b",
-    caseSensitive: false,
-  );
-
-  /// The intent from keywords alone, or null when unsure.
-  String? _ruleIntent(String text) {
-    if (_duplicateIntent.hasMatch(text)) return 'duplicates';
-    if (_templateIntent.hasMatch(text)) return 'template';
-    if (_learnedIntent.hasMatch(text)) return 'learned';
-    if (_undoIntent.hasMatch(text)) return 'undo';
-    if (_searchIntent.hasMatch(text)) return 'search';
-    if (_tidyIntent.hasMatch(text)) return 'tidy';
-    if (_ignoreIntent.hasMatch(text)) return 'ignore_all';
-    if (_approveIntent.hasMatch(text)) return 'approve_all';
-    if (_thanksIntent.hasMatch(text)) return 'thanks';
-    if (_helpIntent.hasMatch(text)) return 'help';
-    return null;
-  }
-
-  /// "sa photos" / "in my downloads" → folder key.
-  static String? _folderIn(String text) {
-    final t = text.toLowerCase();
-    if (RegExp(r'\b(download|downloads)\b').hasMatch(t)) return 'downloads';
-    if (RegExp(r'\b(photos?|pictures?|camera|gallery|litrato|larawan|screenshots?)\b').hasMatch(t)) {
-      return 'photos';
-    }
-    if (RegExp(r'\b(documents?|docs|dokumento)\b').hasMatch(t)) return 'documents';
-    return null;
-  }
-
-  static const _aiRouteTimeout = Duration(seconds: 8);
-
-  /// Ask the on-device model what the user wants (null if it is unavailable).
-  Future<({String intent, String? folder, String query})?> _aiRoute(String text) async {
-    await _modelReady;
-    final llm = _llm;
-    if (llm == null) return null;
-    try {
-      // Never keep the user waiting: if the model is busy (e.g. naming
-      // scans) or slow, fall back to search after a few seconds.
-      final json = await llm
-          .completeJson(
-            system: core.routerSystemPrompt,
-            user: text,
-            schema: core.routerSchema,
-          )
-          .timeout(_aiRouteTimeout);
-      final intent = json['intent'] as String?;
-      if (intent == null || !core.chatIntents.contains(intent)) return null;
-      final folder = json['folder'] as String?;
-      return (
-        intent: intent,
-        folder: folder == null || folder == 'any' ? null : folder,
-        query: (json['query'] as String? ?? '').trim(),
-      );
-    } on Object catch (e) {
-      debugPrint('Chat routing fell back to search: $e');
-      return null;
-    }
-  }
-
-  bool _inFolder(String path, String key) => [
-        for (final dir in SortioData.folderDirs[key] ?? const <String>[])
-          p.join(SortioData.storageRoot, dir),
-      ].any((root) => p.isWithin(root, path));
-
-  Future<String> _respond(
-    String text,
-    ChatSession session,
-    core.LocalSortioCore engine,
-  ) async {
-    var intent = _ruleIntent(text);
-    var folder = _folderIn(text);
-    var query = text;
-    if (intent == null) {
-      final routed = await _aiRoute(text);
-      intent = routed?.intent ?? 'search';
-      folder ??= routed?.folder;
-      if (routed != null && routed.query.isNotEmpty) query = routed.query;
-      // The small model sometimes calls a request "help" or "thanks"; if the
-      // message actually matches files, answer with them instead.
-      if (intent == 'help' || intent == 'thanks') {
-        final hits = await engine.search(text);
-        if (hits.isNotEmpty) {
-          return SortioData.searchReply(text, [
-            for (final h in hits)
-              (name: h.name, where: _display(p.dirname(h.path)), why: h.matchReason ?? ''),
-          ]);
-        }
-      }
-    }
-
-    switch (intent) {
-      case 'duplicates':
-        _cardsSessionId = session.id;
-        await _rescan(
-          only: (s) => s.reason.startsWith(core.LocalSortioCore.duplicatePrefix),
-        );
-        return SortioData.duplicatesReply(suggestions.length);
-      case 'template':
-        return _setNamingTemplate(_templateIntent.firstMatch(text)![1]!.trim());
-      case 'learned':
-        return SortioData.habitsReply([
-          for (final (key, folder, count) in engine.db.habits().take(8))
-            '${key.startsWith('issuer:') ? key.substring(7) : '${key.substring(4)} files'} → $folder ($count×)',
-        ]);
-      case 'tidy':
-        _cardsSessionId = session.id; // this chat's scan owns the cards now
-        final scope = folder != null && (_folders[folder]?.allowed ?? false) ? folder : null;
-        await _rescan(only: scope == null ? null : (s) => _inFolder(s.sourcePath, scope));
-        return SortioData.scanReply(
-          suggestions.length,
-          scope == null ? visibleFolderNames : [_folders[scope]!.label],
-        );
-      case 'approve_all':
-        return _approveAll();
-      case 'ignore_all':
-        return _ignoreAll();
-      case 'undo':
-        return _undoLast();
-      case 'help':
-        return SortioData.helpReply(visibleFolderNames);
-      case 'thanks':
-        return SortioData.thanksReply;
-    }
-
-    // search
-    {
-      final hits = await engine.search(query);
-      return SortioData.searchReply(text, [
+      final hits = await engine.search(text);
+      reply = SortioData.searchReply(text, [
         for (final h in hits)
           (
             name: h.name,
@@ -1021,61 +793,8 @@ class SortioController extends ChangeNotifier {
           ),
       ]);
     }
-  }
+    if (_disposed) return;
 
-  /// "approve all": applies every waiting card the AI is sure enough about
-  /// (per the strictness setting); the rest stay for the user to check.
-  Future<String> _approveAll() async {
-    final pending = [
-      for (final e in suggestions.entries)
-        if (e.value.isPending && !e.value.closing) e.key,
-    ];
-    if (pending.isEmpty) return SortioData.nothingPending;
-    final threshold = strictOutput.threshold;
-    var done = 0, unsure = 0, failed = 0;
-    for (final id in pending) {
-      final planned = _engineById[id];
-      final quarantine =
-          planned?.category == core.LocalSortioCore.quarantineFolderName;
-      if (planned != null &&
-          !quarantine &&
-          (planned.confidence * 100).round() < threshold) {
-        unsure++;
-        continue;
-      }
-      await resolve(id, SuggestionState.applied);
-      if (_batchById.containsKey(id)) {
-        done++;
-      } else {
-        failed++;
-      }
-    }
-    return SortioData.approvedAll(done, unsure, failed);
-  }
-
-  Future<String> _ignoreAll() async {
-    final pending = [
-      for (final e in suggestions.entries)
-        if (e.value.isPending && !e.value.closing) e.key,
-    ];
-    for (final id in pending) {
-      await resolve(id, SuggestionState.ignored);
-    }
-    return SortioData.ignoredAll(pending.length);
-  }
-
-  /// "undo": reverses the most recent approved card.
-  Future<String> _undoLast() async {
-    if (_batchById.isEmpty) return SortioData.nothingToUndo;
-    final id = _batchById.keys.last;
-    final name = suggestions[id]?.fromPath.split('/').last ?? 'The file';
-    await undo(id);
-    return _batchById.containsKey(id)
-        ? 'I could not undo that one. It may have been moved since.'
-        : SortioData.undoneLast(name);
-  }
-
-  void _finishReply(ChatSession session, String reply) {
     final at = DateTime.now();
     final agentMessage = ChatMessage(
       id: 'a${at.microsecondsSinceEpoch}',
@@ -1108,12 +827,6 @@ class SortioController extends ChangeNotifier {
     final index = chatSessions.indexWhere((s) => s.id == id);
     if (index == -1) return;
     chatSessions.removeAt(index);
-    // Also drop it from the saved history, or it would come back on restart.
-    try {
-      _engine?.db.deleteChat(id);
-    } on Object catch (e) {
-      debugPrint('Could not delete chat $id from the database: $e');
-    }
     if (activeSession?.id == id) activeSession = null;
     if (typingSessionId == id) {
       typing = false;
@@ -1131,99 +844,9 @@ class SortioController extends ChangeNotifier {
     _notify();
   }
 
-  /// Camera button in the composer: take a photo of a document, read it on-device,
-  /// and propose where to file it (named by the on-device AI). Like every
-  /// suggestion, nothing moves until the user approves.
-  Future<void> onAttachTapped() async {
-    final engine = _engine;
-    final ocr = _ocr;
-    if (engine == null || ocr == null) {
-      _toast('Scan or upload a file: Sortio reads it on-device. Nothing is uploaded.');
-      return;
-    }
-    final XFile? shot;
-    try {
-      shot = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 90);
-    } on Object catch (e) {
-      debugPrint('Camera failed: $e');
-      _toast(SortioData.cameraUnavailable);
-      return;
-    }
-    if (shot == null || _disposed) return; // user cancelled
-
-    // Keep the photo where photos live (or Downloads if Photos is off).
-    final photosOn = _folders['photos']?.allowed ?? false;
-    final dir = p.join(SortioData.storageRoot, photosOn ? 'DCIM/Camera' : 'Download');
-    await Directory(dir).create(recursive: true);
-    final t = DateTime.now();
-    String two(int n) => n.toString().padLeft(2, '0');
-    final name = 'SORTIO_${t.year}${two(t.month)}${two(t.day)}_'
-        '${two(t.hour)}${two(t.minute)}${two(t.second)}.jpg';
-    final path = p.join(dir, name);
-    await File(shot.path).copy(path);
-
-    // A chat for it: the open one, or a new "Scanned document" chat.
-    var session = activeSession;
-    if (session == null) {
-      session = ChatSession(
-        id: 'chat${t.microsecondsSinceEpoch}',
-        title: 'Scanned document',
-        updatedAt: t,
-      );
-      chatSessions.insert(0, session);
-      activeSession = session;
-    }
-    final userLine = ChatMessage(
-      id: 'u${t.microsecondsSinceEpoch}',
-      isUser: true,
-      text: SortioData.cameraUserLine,
-    );
-    session
-      ..updatedAt = t
-      ..messages.add(userLine);
-    _persistMessage(session, userLine);
-    typing = true;
-    typingSessionId = session.id;
-    _notify();
-
-    var text = '';
-    try {
-      text = await ocr.read(path);
-    } on Object catch (e) {
-      debugPrint('OCR failed for $path: $e');
-    }
-    final suggestion = await engine.suggestForDocument(path);
-    if (suggestion != null) engine.saveOcrText(path, text);
-    final isDocument = suggestion != null && core.RulesEngine.looksLikeDocument(text);
-
-    if (isDocument) {
-      // This chat owns the cards now: just the new document.
-      _cardsSessionId = session.id;
-      ++_scanGeneration;
-      suggestions.clear();
-      _engineById
-        ..clear()
-        ..[suggestion.id] = suggestion;
-      _insightsById
-        ..clear()
-        ..[suggestion.id] = core.ContentInsights.fromText(text);
-      suggestions[suggestion.id] = _toCard(suggestion);
-    }
-    final at = DateTime.now();
-    final reply = ChatMessage(
-      id: 'a${at.microsecondsSinceEpoch}',
-      isUser: false,
-      text: isDocument ? SortioData.cameraDocument : SortioData.cameraNotDocument,
-    );
-    session
-      ..updatedAt = at
-      ..messages.add(reply);
-    _persistMessage(session, reply);
-    typing = false;
-    typingSessionId = null;
-    _notify();
-    if (isDocument) unawaited(_runAi()); // AI name + amount/badge
-  }
+  void onAttachTapped() => _toast(
+    'Scan or upload a file: Sortio reads it on-device. Nothing is uploaded.',
+  );
 
   void toggleFolder(String key) {
     final f = _folders[key];
@@ -1239,24 +862,11 @@ class SortioController extends ChangeNotifier {
 
   void setStrictness(double value) {
     strictness = value;
-    _refreshCards();
     _notify();
   }
 
   void setRules(String value) {
     rules = value;
-    _applyRulesSoon();
-    _notify();
-  }
-
-  // --- Appearance ------------------------------------------------------------
-
-  /// The Dark mode switch: swaps the palette and repaints the app.
-  void setDarkMode(bool value) => _applyTheme(dark: value);
-
-  void _applyTheme({required bool dark}) {
-    darkMode = dark;
-    SortioThemeBus.instance.setDark(dark);
     _notify();
   }
 
@@ -1274,6 +884,8 @@ class SortioController extends ChangeNotifier {
       _armTimer?.cancel();
       armed = false;
       _engine?.wipeMemory();
+      _engine?.db.saveSetting(_rulesKey, '');
+      _engine?.houseRules = core.HouseRules.empty;
       _batchById.clear();
       if (_engine != null) {
         chatSessions.clear();
