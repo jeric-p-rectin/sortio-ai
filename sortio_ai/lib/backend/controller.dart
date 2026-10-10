@@ -21,6 +21,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'data_output.dart';
+import 'design_tokens.dart';
+import 'llm/llamadart_client.dart';
 import 'models.dart';
 import 'motion.dart';
 import 'platform/model_store.dart';
@@ -30,6 +32,19 @@ import 'sortio_core.dart' as core;
 /// Which location the app starts on (mirrors the prototype's `startPanel`
 /// prop: none | settings).
 enum StartPanel { none, settings }
+
+/// What the strictness slider (0.0 relaxed – 1.0 strict) means for cards:
+/// the minimum confidence a suggestion needs to be shown as a recommendation
+/// instead of a "check this first" question.
+class StrictOutput {
+  const StrictOutput(this.strictness);
+
+  final double strictness;
+
+  /// Minimum confidence in percent: 40% when relaxed, 67% at the default,
+  /// 95% when strict.
+  int get threshold => (40 + strictness.clamp(0.0, 1.0) * 55).round();
+}
 
 class SortioController extends ChangeNotifier {
   SortioController() {
@@ -67,6 +82,15 @@ class SortioController extends ChangeNotifier {
   // --- Appearance ------------------------------------------------------------
   /// True while the dark palette is active (the app's original look).
   bool darkMode = true;
+
+  /// 0.0 (relaxed) – 1.0 (strict): how sure the AI must be before a card is
+  /// a recommendation rather than a question for the user.
+  double strictness = 0.5;
+
+  StrictOutput get strictOutput => StrictOutput(strictness);
+
+  /// The user's house rules in plain words, one per line.
+  String rules = '';
 
   /// All chats, newest first — drives the History (chats) screen.
   final List<ChatSession> chatSessions = <ChatSession>[];
@@ -860,13 +884,22 @@ class SortioController extends ChangeNotifier {
     unawaited(_rescan());
   }
 
+  void setDarkMode(bool value) {
+    if (darkMode == value) return;
+    darkMode = value;
+    SortioThemeBus.instance.setDark(value);
+    _notify();
+  }
+
   void setStrictness(double value) {
     strictness = value;
+    _refreshCards();
     _notify();
   }
 
   void setRules(String value) {
     rules = value;
+    _applyRulesSoon();
     _notify();
   }
 
