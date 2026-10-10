@@ -148,8 +148,14 @@ class SortioController extends ChangeNotifier {
       _engine = core.LocalSortioCore(dataDir: dataDir);
       _loadChats();
       _loadRules();
-      namingTemplate =
-          _engine!.db.setting(_templateKey) ?? core.NameBuilder.defaultTemplate;
+      final savedTemplate = _engine!.db.setting(_templateKey);
+      if (savedTemplate == null || _isValidTemplate(savedTemplate)) {
+        namingTemplate = savedTemplate ?? core.NameBuilder.defaultTemplate;
+      } else {
+        // A broken template from an older build: reset it and rebuild names.
+        _engine!.db.saveSetting(_templateKey, core.NameBuilder.defaultTemplate);
+        _engine!.db.clearAiNames();
+      }
       _ocr = OcrService(tempDir: (await getTemporaryDirectory()).path);
       _modelReady = _prepareModel(dataDir);
       _offlineSub = _engine!.isOffline.listen(_onRealOffline);
@@ -768,16 +774,18 @@ class SortioController extends ChangeNotifier {
     caseSensitive: false,
   );
 
+  /// Only {date}, {issuer} and {type} placeholders, every brace closed.
+  static bool _isValidTemplate(String template) =>
+      template.contains('{') &&
+      RegExp(r'^(?:[^{}]|\{(?:date|issuer|type)\})+$').hasMatch(template);
+
   /// Validates and saves a naming template; AI names are rebuilt with it.
   Future<String> _setNamingTemplate(String template) async {
     final engine = _engine;
     if (engine == null) return SortioData.templateHelp;
     final example = core.NameBuilder(template: template)
         .build(date: '2026-03', issuer: 'Meralco', type: 'Bill', extension: '.pdf');
-    final wellFormed =
-        RegExp(r'^(?:[^{}]|\{(?:date|issuer|type)\})+$').hasMatch(template) &&
-            template.contains('{');
-    if (!wellFormed || example == null || example == 'Bill.pdf') {
+    if (!_isValidTemplate(template) || example == null || example == 'Bill.pdf') {
       return SortioData.templateHelp;
     }
     namingTemplate = template;

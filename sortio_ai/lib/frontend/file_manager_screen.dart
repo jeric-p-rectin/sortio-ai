@@ -301,7 +301,6 @@ class _FileRow extends StatelessWidget {
               ],
             ),
           ),
-          Icon(Icons.more_vert, size: 18, color: SortioColors.textMuted),
         ],
       ),
     );
