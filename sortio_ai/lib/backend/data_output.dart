@@ -36,7 +36,7 @@ abstract final class SortioData {
         ),
       ];
 
-  static List<FolderAccess> folders({bool downloads = true, bool photos = true, bool documents = false}) => [
+  static List<FolderAccess> folders({bool downloads = true, bool photos = true, bool documents = true}) => [
         FolderAccess(key: 'downloads', label: 'Downloads', path: '~/Downloads', allowed: downloads),
         FolderAccess(key: 'photos', label: 'Photos', path: '~/DCIM/Camera · ~/Pictures', allowed: photos),
         FolderAccess(key: 'documents', label: 'Documents', path: '~/Documents', allowed: documents),
@@ -340,6 +340,35 @@ abstract final class SortioData {
       : 'I checked ${joinNames(folderNames)} and found $count file${count == 1 ? '' : 's'} to tidy. Nothing moves until you approve:';
 
   /// Reply to a search request.
+  /// "What is this file about?" replies.
+  static const String explainWhichFile =
+      'Which file do you mean? Find it first (for example "find my Meralco bill"), '
+      'then ask "what is it about?". You can also name the file, like '
+      '"what is IMG_2043.pdf about?"';
+  static String explainUnreadable(String name) =>
+      'I can only read PDFs and photos of documents, so I cannot tell what is inside $name.';
+  static String explainNoText(String name) =>
+      'I could not find any text in $name. It may be a photo without writing, or the scan is too blurry.';
+  static String explainFile({
+    required String name,
+    String? kind,
+    String? date,
+    String? summary,
+    String? excerpt,
+    String? amount,
+    String? sensitive,
+  }) {
+    final head = kind == null ? name : '$name: $kind${date == null ? '' : ', dated $date'}.';
+    final facts = [?amount, ?sensitive].join(' · ');
+    return [
+      head,
+      if (kind == null && date != null) 'Date: $date',
+      ?summary,
+      if (summary == null && excerpt != null) 'It starts with: "$excerpt"',
+      if (facts.isNotEmpty) facts,
+    ].join('\n');
+  }
+
   static String searchReply(String query, List<({String name, String where, String why})> hits) {
     if (hits.isEmpty) {
       return 'I could not find anything matching "$query" in your allowed folders.';

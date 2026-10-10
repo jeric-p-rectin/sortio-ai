@@ -236,6 +236,21 @@ void main() {
   });
 
   group('Index', () {
+    test('recentFilesUnder lists one folder (any depth), newest first', () {
+      final db = SortioDb.inMemory();
+      db.upsertFiles([
+        ('/s/Documents/a.pdf', 10, 1),
+        ('/s/Documents/Work/b.pdf', 10, 3),
+        ('/s/Documents2/c.pdf', 10, 2),
+        ('/s/Download/d.pdf', 10, 4),
+      ]);
+      expect(db.recentFilesUnder('/s/Documents').map((f) => f.name),
+          ['b.pdf', 'a.pdf']);
+      expect(db.recentFilesUnder('/s/Documents', limit: 1).map((f) => f.name),
+          ['b.pdf']);
+      db.close();
+    });
+
     test('scan sends executables to quarantine; wipe forgets memory and logs',
         () async {
       final exe = await touch('setup_v2.exe');

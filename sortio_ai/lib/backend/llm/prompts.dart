@@ -28,6 +28,7 @@ const chatIntents = [
   'ignore_all',
   'undo',
   'learned',
+  'explain',
   'help',
   'thanks',
 ];
@@ -37,7 +38,8 @@ const routerSystemPrompt =
     "user's intent: tidy = organize or clean files; search = find a file (put "
     'the words to search for in query); duplicates = find copies; approve_all = '
     'accept the waiting suggestions; ignore_all = reject them; undo = reverse the '
-    'last change; learned = what Sortio learned; help = greetings or questions '
+    'last change; learned = what Sortio learned; explain = what a file '
+    'says or is about (put the file name or topic in query); help = greetings or questions '
     'about what Sortio can do; thanks = gratitude. folder = the folder the user '
     'mentions, or any. Messages may be English, Tagalog or Taglish. JSON only.';
 
@@ -52,6 +54,23 @@ const routerSchema = <String, dynamic>{
     'query': {'type': 'string'},
   },
   'required': ['intent', 'folder', 'query'],
+};
+
+const summarizeSystemPrompt =
+    "You read the OCR text of a document on the user's phone. Give its "
+    'doc_type, the issuer (short brand or sender name, or empty), and a summary: '
+    'one or two short plain-English sentences on what the document is and its '
+    'key details (amounts, dates, purpose). Use only facts in the text. '
+    'JSON only.';
+
+const summarizeSchema = <String, dynamic>{
+  'type': 'object',
+  'properties': {
+    'doc_type': {'type': 'string', 'enum': docTypes},
+    'issuer': {'type': 'string'},
+    'summary': {'type': 'string'},
+  },
+  'required': ['doc_type', 'issuer', 'summary'],
 };
 
 const classifySystemPrompt =

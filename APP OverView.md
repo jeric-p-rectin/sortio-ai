@@ -432,7 +432,7 @@ flutter build apk --release --target-platform android-arm64
 # → build/app/outputs/flutter-apk/app-release.apk
 ```
 
-**APK size:** about **530–560 MB**, almost all of which is the AI model. Without the model, the app is about 30–40 MB. On first launch, the model is copied into app storage, so the phone needs about **1.2 GB free**.
+**APK size:** **598 MB** (release, arm64). The AI model is 523 MB of that; the rest is llama.cpp (incl. a Vulkan backend), ML Kit OCR, Flutter and SQLite (~75 MB). On first launch, the model is copied into app storage, so the phone needs about **1.2 GB free**.
 
 **Requirements:** Android 7.0+ (API 24), arm64 phone, about 3 GB RAM or more recommended for the model.
 

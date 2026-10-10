@@ -16,7 +16,7 @@ class LlamaDartClient implements LlmClient {
   Future<LlamaEngine>? _loading;
   final Map<Map<String, dynamic>, String> _grammars = {};
 
-  LlamaDartClient(this.modelPath, {this.maxTokens = 96});
+  LlamaDartClient(this.modelPath, {this.maxTokens = 160});
 
   bool get isLoaded => _engine != null;
 

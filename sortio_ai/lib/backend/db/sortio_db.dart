@@ -354,6 +354,22 @@ class SortioDb {
       .map(IndexedFile.fromRow)
       .toList();
 
+  /// Indexed files with this exact name (any folder), newest first.
+  List<IndexedFile> filesNamed(String name) => _db
+      .select('SELECT * FROM files WHERE name = ? COLLATE NOCASE ORDER BY mtime DESC', [name])
+      .map(IndexedFile.fromRow)
+      .toList();
+
+  /// Newest files inside [dir] (any depth), for the File Manager screen.
+  List<IndexedFile> recentFilesUnder(String dir, {int limit = 200}) => _db
+      // "dir/" <= path < "dir0" ('0' sorts right after '/'): everything below dir.
+      .select(
+        'SELECT * FROM files WHERE path >= ? AND path < ? ORDER BY mtime DESC LIMIT ?',
+        ['$dir/', '${dir}0', limit],
+      )
+      .map(IndexedFile.fromRow)
+      .toList();
+
   // --- Chats -----------------------------------------------------------------
 
   /// All chats, newest first, with their messages in order.

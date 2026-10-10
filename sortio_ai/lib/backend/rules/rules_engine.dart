@@ -81,6 +81,10 @@ class RulesEngine {
 
   static const _imageExtensions = {'jpg', 'jpeg', 'png', 'heic', 'webp', 'bmp'};
 
+  /// Files Sortio can read text from (OCR): PDFs and photos.
+  static bool canRead(String fileName) =>
+      _scannable.contains(p.extension(fileName).replaceFirst('.', '').toLowerCase());
+
   static bool isImage(String fileName) =>
       _imageExtensions.contains(p.extension(fileName).replaceFirst('.', '').toLowerCase());
 

@@ -36,7 +36,14 @@ enum StartPanel { none, settings }
 
 class SortioController extends ChangeNotifier {
   SortioController() {
-    _seedChats();
+    if (Platform.isAndroid) {
+      // Real device: show nothing until the on-device data is loaded, so the
+      // demo chats and files never flash on screen at startup.
+      SortioData.liveFiles = const [];
+      SortioData.liveChats = chatSessions;
+    } else {
+      _seedChats(); // desktop/tests: the scripted demo
+    }
     unawaited(_init());
   }
 
@@ -129,7 +136,9 @@ class SortioController extends ChangeNotifier {
   /// UI suggestion id -> engine suggestion, and -> batch id once applied.
   final Map<String, core.Suggestion> _engineById = {};
   final Map<String, String> _batchById = {};
-  SavingsSummary _savings = SortioData.savings;
+  // Real numbers come from the action history once the engine is open;
+  // until then show zeros, never the demo figures.
+  SavingsSummary _savings = const SavingsSummary(files: 0, mbFreed: 0, minutesSaved: 0);
 
   /// True when the real on-device engine is running (not demo data).
   bool get engineReady => _engine != null;
@@ -616,10 +625,26 @@ class SortioController extends ChangeNotifier {
       for (final s in _engineById.entries)
         if (suggestions[s.key]?.isPending ?? false) s.value.sourcePath,
     };
+    // Newest files per folder, so a big camera roll never crowds out
+    // Downloads or Documents.
+    const perFolder = 200;
     final files = <FileItem>[];
-    for (final f in engine.db.recentFiles(limit: 400)) {
+    final seen = <String>{};
+    final perKey = <String, int>{};
+    final indexed = [
+      for (final dirs in SortioData.folderDirs.values)
+        for (final dir in dirs)
+          ...engine.db.recentFilesUnder(
+            p.join(SortioData.storageRoot, dir),
+            limit: perFolder,
+          ),
+    ];
+    for (final f in indexed) {
+      if (!seen.add(f.path)) continue; // Pictures/Screenshots is inside Pictures
       final key = _folderKeyFor(f.path);
       if (key == null) continue;
+      final count = perKey[key] = (perKey[key] ?? 0) + 1;
+      if (count > perFolder) continue;
       final text = f.ocrText;
       files.add(
         FileItem(
@@ -878,6 +903,12 @@ class SortioController extends ChangeNotifier {
     r'\b(find|search|where|hanapin|hanap|nasaan|asan|saan|look for|show me|locate)\b',
     caseSensitive: false,
   );
+  static final _explainIntent = RegExp(
+    r"\b(about|summar(y|ize|ise)|explain|describe|what does (it|this|that) say|"
+    r"what('?s| is) (in|inside)|contents?|laman|tungkol|buod|ibig sabihin|"
+    r"i-?explain|basahin)\b",
+    caseSensitive: false,
+  );
   static final _thanksIntent = RegExp(
     r'\b(thanks|thank you|salamat|ty)\b',
     caseSensitive: false,
@@ -893,6 +924,7 @@ class SortioController extends ChangeNotifier {
     if (_templateIntent.hasMatch(text)) return 'template';
     if (_learnedIntent.hasMatch(text)) return 'learned';
     if (_undoIntent.hasMatch(text)) return 'undo';
+    if (_explainIntent.hasMatch(text)) return 'explain';
     if (_searchIntent.hasMatch(text)) return 'search';
     if (_tidyIntent.hasMatch(text)) return 'tidy';
     if (_ignoreIntent.hasMatch(text)) return 'ignore_all';
@@ -966,12 +998,7 @@ class SortioController extends ChangeNotifier {
       // message actually matches files, answer with them instead.
       if (intent == 'help' || intent == 'thanks') {
         final hits = await engine.search(text);
-        if (hits.isNotEmpty) {
-          return SortioData.searchReply(text, [
-            for (final h in hits)
-              (name: h.name, where: _display(p.dirname(h.path)), why: h.matchReason ?? ''),
-          ]);
-        }
+        if (hits.isNotEmpty) return _searchReply(session, text, hits);
       }
     }
 
@@ -1003,6 +1030,8 @@ class SortioController extends ChangeNotifier {
         return _ignoreAll();
       case 'undo':
         return _undoLast();
+      case 'explain':
+        return _explain(text, query, session, engine);
       case 'help':
         return SortioData.helpReply(visibleFolderNames);
       case 'thanks':
@@ -1010,17 +1039,165 @@ class SortioController extends ChangeNotifier {
     }
 
     // search
-    {
-      final hits = await engine.search(query);
-      return SortioData.searchReply(text, [
-        for (final h in hits)
-          (
-            name: h.name,
-            where: _display(p.dirname(h.path)),
-            why: h.matchReason ?? '',
-          ),
-      ]);
+    return _searchReply(session, text, await engine.search(query));
+  }
+
+  /// The files the last search in each chat found, so "what is it about?"
+  /// knows which file the user means.
+  final Map<String, List<String>> _lastFiles = {};
+
+  String _searchReply(ChatSession session, String text, List<core.FileResult> hits) {
+    _lastFiles[session.id] = [for (final h in hits) h.path];
+    return SortioData.searchReply(text, [
+      for (final h in hits)
+        (
+          name: h.name,
+          where: _display(p.dirname(h.path)),
+          why: h.matchReason ?? '',
+        ),
+    ]);
+  }
+
+  static final _fileNameIn = RegExp(
+    r'[\w\-.()]+\.(?:pdf|jpe?g|png|webp|heic|docx?|xlsx?|pptx?|txt|zip)\b',
+    caseSensitive: false,
+  );
+  static final _listedFile = RegExp(r'^• (.+)\n\s+in (.+?) \(', multiLine: true);
+  static final _explainWords = RegExp(
+    r"\b(what('?s| is| are)?|about|all|summar(y|ize|ise)|explain|describe|the|this|"
+    r"that|it|file|document|contents?|laman|tungkol|saan|ano|ang|ng|sa|buod|"
+    r"ibig sabihin|basahin|please|pls|paki)\b|[?!.]",
+    caseSensitive: false,
+  );
+
+  /// Which files "what is it about?" refers to: a file named in the message,
+  /// else the files the chat just found, else a search for the topic.
+  Future<List<String>> _filesToExplain(
+    String text,
+    String query,
+    ChatSession session,
+    core.LocalSortioCore engine,
+  ) async {
+    final named = _fileNameIn.firstMatch(text)?[0];
+    if (named != null) {
+      final found = engine.db.filesNamed(named);
+      if (found.isNotEmpty) return [found.first.path];
     }
+    var recent = _lastFiles[session.id];
+    if (recent == null || recent.isEmpty) {
+      // After a restart: read the file list from the chat's last search reply.
+      for (final m in session.messages.reversed) {
+        if (m.isUser) continue;
+        final listed = _listedFile.allMatches(m.text).toList();
+        if (listed.isEmpty) continue;
+        recent = [
+          for (final l in listed)
+            p.join(SortioData.storageRoot, l[2]!, l[1]!.trim()),
+        ].where((path) => File(path).existsSync()).toList();
+        break;
+      }
+    }
+    if (recent != null && recent.isNotEmpty) {
+      // "the pdf" -> prefer PDFs; "the photo" -> prefer images.
+      final t = text.toLowerCase();
+      final wantPdf = t.contains('pdf');
+      final wantImage = RegExp(r'\b(photo|picture|image|litrato)\b').hasMatch(t);
+      final preferred = recent.where((path) {
+        if (wantPdf) return p.extension(path).toLowerCase() == '.pdf';
+        if (wantImage) return core.RulesEngine.isImage(path);
+        return true;
+      }).toList();
+      return (preferred.isEmpty ? recent : preferred).take(2).toList();
+    }
+    // "what is my Meralco bill about?" -> search for the topic.
+    final topic = query.replaceAll(_explainWords, ' ').trim();
+    if (topic.isEmpty) return const [];
+    final hits = await engine.search(topic);
+    _lastFiles[session.id] = [for (final h in hits) h.path];
+    return [for (final h in hits.take(2)) h.path];
+  }
+
+  static const _summaryTimeout = Duration(seconds: 25);
+  static final _dates = core.DateExtractor();
+  static final _issuers = core.IssuerCleaner();
+
+  /// "What is this PDF about?": reads the file on-device (OCR, cached) and has
+  /// the on-device model summarize it. Dates, amounts and sensitive data come
+  /// from code, so they are exact.
+  Future<String> _explain(
+    String text,
+    String query,
+    ChatSession session,
+    core.LocalSortioCore engine,
+  ) async {
+    final paths = await _filesToExplain(text, query, session, engine);
+    if (paths.isEmpty) return SortioData.explainWhichFile;
+    final parts = <String>[];
+    for (final path in paths) {
+      parts.add(await _explainOne(path, engine));
+    }
+    return parts.join('\n\n');
+  }
+
+  Future<String> _explainOne(String path, core.LocalSortioCore engine) async {
+    final name = p.basename(path);
+    if (!core.RulesEngine.canRead(name)) return SortioData.explainUnreadable(name);
+
+    var content = engine.ocrTextFor(path);
+    if (content == null) {
+      final ocr = _ocr;
+      try {
+        content = ocr == null ? '' : await ocr.read(path);
+      } on Object catch (e) {
+        debugPrint('OCR failed for $path: $e');
+        content = '';
+      }
+      engine.saveOcrText(path, content);
+    }
+    final clean = content.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (clean.isEmpty) return SortioData.explainNoText(name);
+
+    final insights = core.ContentInsights.fromText(content);
+    final found = _dates.extract(content);
+    final date = found == null
+        ? null
+        : '${found.day == null ? '' : '${found.day} '}${_months[found.month - 1]} ${found.year}';
+
+    String? kind;
+    String? summary;
+    await _modelReady;
+    final llm = _llm;
+    if (llm != null) {
+      try {
+        final json = await llm
+            .completeJson(
+              system: core.summarizeSystemPrompt,
+              user: 'File: $name\n\n${clean.length > 1500 ? clean.substring(0, 1500) : clean}',
+              schema: core.summarizeSchema,
+            )
+            .timeout(_summaryTimeout);
+        final type = json['doc_type'] as String?;
+        final issuer = _issuers.clean(json['issuer'] as String? ?? '');
+        if (type != null && type != 'Other') {
+          kind = issuer == null || issuer.isEmpty ? 'a $type' : 'a $type from $issuer';
+        }
+        final s = (json['summary'] as String? ?? '').trim();
+        if (s.isNotEmpty) summary = s;
+      } on Object catch (e) {
+        debugPrint('Summary fell back to an excerpt: $e');
+      }
+    }
+    return SortioData.explainFile(
+      name: name,
+      kind: kind,
+      date: date,
+      summary: summary,
+      excerpt: clean.length > 160 ? '${clean.substring(0, 160)}…' : clean,
+      amount: insights.amountValue == null
+          ? null
+          : '${insights.amountLabel ?? 'Amount:'} ${insights.amountValue}',
+      sensitive: insights.sensitiveBadge,
+    );
   }
 
   /// "approve all": applies every waiting card the AI is sure enough about
