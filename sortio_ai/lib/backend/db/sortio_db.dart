@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
 
 import '../models/action_record.dart';
 import '../models/suggestion.dart';
+import 'sqlite_platform.dart' as sqlite_platform;
 
 /// A saved chat (History screen) and its messages.
 class StoredChat {
@@ -75,20 +74,15 @@ class SortioDb {
   static const _schemaVersion = 3;
   static const maxOcrChars = 4000;
 
-  final Database _db;
+  final CommonDatabase _db;
 
   SortioDb.open(String dataDir)
-      : _db = _openFile(p.join(dataDir, 'sortio.db')) {
+      : _db = sqlite_platform.openDatabase(p.join(dataDir, 'sortio.db')) {
     _migrate();
   }
 
-  SortioDb.inMemory() : _db = sqlite3.openInMemory() {
+  SortioDb.inMemory() : _db = sqlite_platform.openInMemory() {
     _migrate();
-  }
-
-  static Database _openFile(String path) {
-    Directory(p.dirname(path)).createSync(recursive: true);
-    return sqlite3.open(path);
   }
 
   void close() => _db.close();

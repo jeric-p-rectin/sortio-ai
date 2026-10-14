@@ -220,6 +220,21 @@ flutter pub get
 flutter run
 ```
 
+### Run the browser preview
+
+The web build uses the same screens and sample data, with a desktop sidebar and
+responsive mobile navigation. Browsers cannot access Android folders, so the
+preview does not read or change personal files. Preview chats are stored locally
+in browser IndexedDB using SQLite compiled to WebAssembly; `web/sqlite3.wasm` is
+the module matching the pinned `sqlite3` package version.
+
+```bash
+cd sortio_ai
+flutter run -d chrome
+# Or create a static website build:
+flutter build web
+```
+
 For the Android emulator helper:
 
 ```powershell

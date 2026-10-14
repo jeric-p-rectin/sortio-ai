@@ -14,6 +14,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -36,7 +37,7 @@ enum StartPanel { none, settings }
 
 class SortioController extends ChangeNotifier {
   SortioController() {
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       // Real device: show nothing until the on-device data is loaded, so the
       // demo chats and files never flash on screen at startup.
       SortioData.liveFiles = const [];
@@ -121,6 +122,7 @@ class SortioController extends ChangeNotifier {
 
   // --- Engine ---------------------------------------------------------------
   core.LocalSortioCore? _engine;
+  core.SortioDb? _webDb;
   OcrService? _ocr;
   LlamaDartClient? _llm;
   Future<void>? _modelReady;
@@ -144,6 +146,13 @@ class SortioController extends ChangeNotifier {
   bool get engineReady => _engine != null;
 
   Future<void> _init() async {
+    if (kIsWeb) {
+      _webDb = core.SortioDb.open('browser');
+      _loadWebChats();
+      _savings = SortioData.savings;
+      _loadDemo();
+      return;
+    }
     try {
       final dataDir = (await getApplicationSupportDirectory()).path;
       if (Platform.isAndroid) {
@@ -327,9 +336,58 @@ class SortioController extends ChangeNotifier {
     _notify();
   }
 
+  /// Restores browser-preview chats from SQLite, or saves the sample chats
+  /// the first time the preview is opened.
+  void _loadWebChats() {
+    final db = _webDb!;
+    final savedChats = db.chats();
+    if (savedChats.isEmpty) {
+      for (final chat in chatSessions) {
+        db.saveChat(chat.id, chat.title, chat.updatedAt);
+        for (final message in chat.messages) {
+          db.saveMessage(
+            chat.id,
+            core.StoredMessage(
+              id: message.id,
+              isUser: message.isUser,
+              text: message.text,
+              at: chat.updatedAt,
+            ),
+          );
+        }
+      }
+    } else {
+      chatSessions
+        ..clear()
+        ..addAll([
+          for (final chat in savedChats)
+            ChatSession(
+              id: chat.id,
+              title: chat.title,
+              updatedAt: chat.updatedAt,
+              messages: [
+                for (final message in chat.messages)
+                  ChatMessage(
+                    id: message.id,
+                    isUser: message.isUser,
+                    text: message.text,
+                  ),
+              ],
+            ),
+        ]);
+    }
+    activeSession = chatSessions.isEmpty
+        ? null
+        : chatSessions.firstWhere(
+            (chat) => chat.id == SortioData.scriptedChatId,
+            orElse: () => chatSessions.first,
+          );
+    SortioData.liveChats = chatSessions;
+  }
+
   /// Saves the chat row and one of its messages (insert or update).
   void _persistMessage(ChatSession chat, ChatMessage m) {
-    final db = _engine?.db;
+    final db = _engine?.db ?? _webDb;
     if (db == null) return;
     db.saveChat(chat.id, chat.title, chat.updatedAt);
     db.saveMessage(
@@ -870,7 +928,10 @@ class SortioController extends ChangeNotifier {
     String reply;
     if (engine == null) {
       await Future<void>.delayed(SortioMotion.agentThinking);
-      reply = SortioData.agentReply(visibleFolderNames);
+      reply = kIsWeb
+          ? 'This browser preview uses sample files only and cannot access or change files on your device. '
+              'Try the Android app to scan folders locally and review real suggestions.'
+          : SortioData.agentReply(visibleFolderNames);
     } else if (visibleFolderNames.isEmpty) {
       reply = SortioData.agentReply(visibleFolderNames);
     } else {
@@ -1287,7 +1348,7 @@ class SortioController extends ChangeNotifier {
     chatSessions.removeAt(index);
     // Also drop it from the saved history, or it would come back on restart.
     try {
-      _engine?.db.deleteChat(id);
+      (_engine?.db ?? _webDb)?.deleteChat(id);
     } on Object catch (e) {
       debugPrint('Could not delete chat $id from the database: $e');
     }
@@ -1451,8 +1512,9 @@ class SortioController extends ChangeNotifier {
       _armTimer?.cancel();
       armed = false;
       _engine?.wipeMemory();
+      _webDb?.wipe();
       _batchById.clear();
-      if (_engine != null) {
+      if (_engine != null || _webDb != null) {
         chatSessions.clear();
         activeSession = null;
         _cardsSessionId = SortioData.scriptedChatId;
@@ -1527,6 +1589,8 @@ class SortioController extends ChangeNotifier {
       t.cancel();
     }
     _offlineSub?.cancel();
+    _webDb?.close();
+    _webDb = null;
     _engine?.close();
     _ocr?.close();
     _llm?.dispose();

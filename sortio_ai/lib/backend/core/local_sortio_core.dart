@@ -299,13 +299,23 @@ class LocalSortioCore implements SortioCore {
 
   /// 64-bit FNV-1a, enough to tell same-size files apart.
   static String _fnv1a64(Uint8List bytes) {
-    var hash = 0xcbf29ce484222325;
-    const prime = 0x100000001b3;
+    var high = 0xcbf29ce4;
+    var low = 0x84222325;
+    const two32 = 0x100000000;
+
     for (final b in bytes) {
-      hash ^= b;
-      hash = (hash * prime) & 0xFFFFFFFFFFFFFFFF;
+      final lowByte = low % 0x100;
+      low = low - lowByte + (lowByte ^ b);
+      final lowProduct = low * 0x1B3;
+      final carry = lowProduct ~/ two32;
+      high = (high * 0x1B3 + low * 0x100 + carry) % two32;
+      low = lowProduct % two32;
     }
-    return hash.toUnsigned(64).toRadixString(16);
+
+    final hex =
+        '${high.toRadixString(16).padLeft(8, '0')}'
+        '${low.toRadixString(16).padLeft(8, '0')}';
+    return hex.replaceFirst(RegExp(r'^0+(?=.)'), '');
   }
 
   Suggestion _duplicateSuggestion(
