@@ -6,6 +6,7 @@
 // cursor, splash colors) along with the design tokens.
 // ============================================================================
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -20,6 +21,7 @@ class SortioApp extends StatelessWidget {
   /// Keeps the system bars readable: light icons on the dark theme, dark
   /// icons on the light one. Re-applied on every theme switch.
   void _applySystemChrome(bool dark) {
+    if (kIsWeb) return;
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
